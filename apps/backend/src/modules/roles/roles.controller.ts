@@ -54,7 +54,7 @@ export class RolesController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'ロール一覧取得 — ACSMS-API-027-001' })
   @ApiResponse({ status: 200, type: RoleListResponseDto })
-  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください' })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   findAll() {
     return this.rolesService.findAll();

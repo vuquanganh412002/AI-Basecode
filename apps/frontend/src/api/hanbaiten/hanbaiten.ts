@@ -104,6 +104,29 @@ export async function removeHanbaiten(
   return res.data;
 }
 
+/** `GET /api/v1/hanbaiten/export` のフィルタのみパラメータ（page/sort なし）。 */
+export type HanbaitenExportQuery = Omit<
+  ListHanbaitenQuery,
+  'page' | 'per_page' | 'sort_by' | 'sort_order'
+>;
+
+/**
+ * GET /api/v1/hanbaiten/export — ACSMS-API-018-003（顧客CR 2026-08-24）。
+ *
+ * 生の Blob を返し、呼び出し元が `downloadBlob` でブラウザダウンロードを
+ * 起こせるようにする。wrapper は page / per_page / sort_by / sort_order を
+ * 転送しない — 検索結果と同じ絞り込み条件で全件出力するため（BE も無視する）。
+ */
+export async function exportHanbaitenExcel(
+  query: HanbaitenExportQuery = {},
+): Promise<Blob> {
+  const res = await axiosInstance.get<Blob>('/api/v1/hanbaiten/export', {
+    params: query,
+    responseType: 'blob',
+  });
+  return res.data;
+}
+
 // ─── ACSMS-API-COMMON — 販売店 dropdown（SCR-011 で使用） ─────────
 
 /**
@@ -282,6 +305,7 @@ export interface ImportHanbaitenRow {
   hanbaiten_name?: string;
   hanbaiten_name_kana?: string;
   torihikisaki_no?: string;
+  todofuken_code?: string;
   yubin_no?: string;
   address?: string;
   tel?: string;

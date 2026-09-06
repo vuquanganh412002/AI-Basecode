@@ -22,9 +22,12 @@ export const AuditOperation = {
   EXPORT_EXCEL: 'EXPORT_EXCEL',
   /** PDF export (帳票). */
   EXPORT_PDF: 'EXPORT_PDF',
+  // Excel取込は NEW / UPDATE の2モードのみ（不具合修正2026-08 — 実装されな
+  // かった IMPORT_UPDATE_ALL は削除、IMPORT_UPDATE_PARTIAL は IMPORT_UPDATE
+  // へ改称。過去ログの t_log.operation 列は文字列のまま残るため表示・検索に
+  // 影響しないが、新規書込みは以後この値になる）。
   IMPORT_NEW: 'IMPORT_NEW',
-  IMPORT_UPDATE_ALL: 'IMPORT_UPDATE_ALL',
-  IMPORT_UPDATE_PARTIAL: 'IMPORT_UPDATE_PARTIAL',
+  IMPORT_UPDATE: 'IMPORT_UPDATE',
   SEND_NOTIFICATION: 'SEND_NOTIFICATION',
   CRON: 'CRON',
   PASSWORD_RESET: 'PASSWORD_RESET',

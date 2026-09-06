@@ -53,8 +53,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
         shikuchoson VARCHAR(100) NOT NULL,                                  -- 市町村郡
         chome_banchi VARCHAR(100) NOT NULL,                                 -- 丁目番地
         tatemono_mei VARCHAR(100) NOT NULL DEFAULT '',                      -- マンション名等※空文字許容
-        renrakusaki_1 VARCHAR(15) NOT NULL DEFAULT '',                      -- 連絡先１※空文字許容
-        renrakusaki_2 VARCHAR(15) NOT NULL DEFAULT '',                      -- 連絡先２※空文字許容
+        renrakusaki_1 VARCHAR(15) NOT NULL DEFAULT '',                      -- TEL1※空文字許容
+        renrakusaki_2 VARCHAR(15) NOT NULL DEFAULT '',                      -- TEL2※空文字許容
         email VARCHAR(100) NOT NULL DEFAULT '',                             -- メールアドレス※空文字許容
         mail_magazine_flg INTEGER,                                          -- メールマガジン（0:配信しない, 1:配信する）※紙版のみ指定時は NULL
         birth_year INTEGER,                                                 -- 生年（西暦）
@@ -65,8 +65,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
         haitatsu_shikuchoson VARCHAR(100) NOT NULL DEFAULT '',              -- 配達先市町村郡※空文字許容
         haitatsu_chome_banchi VARCHAR(100) NOT NULL DEFAULT '',             -- 配達先丁目番地※空文字許容
         haitatsu_tatemono_mei VARCHAR(100) NOT NULL DEFAULT '',             -- 配達先建物名※空文字許容
-        haitatsu_renrakusaki_1 VARCHAR(15) NOT NULL DEFAULT '',             -- 配達先連絡先１※空文字許容
-        haitatsu_renrakusaki_2 VARCHAR(15) NOT NULL DEFAULT '',             -- 配達先連絡先２※空文字許容
+        haitatsu_renrakusaki_1 VARCHAR(15) NOT NULL DEFAULT '',             -- 配達先TEL1※空文字許容
+        haitatsu_renrakusaki_2 VARCHAR(15) NOT NULL DEFAULT '',             -- 配達先TEL2※空文字許容
         haitatsu_shimei_sei VARCHAR(50) NOT NULL DEFAULT '',                -- 配達先氏名（姓・漢字）※空文字許容
         haitatsu_shimei_mei VARCHAR(50) NOT NULL DEFAULT '',                -- 配達先氏名（名・漢字）※空文字許容
         haitatsu_shimei_kana_sei VARCHAR(100) NOT NULL DEFAULT '',          -- 配達先氏名かな（姓）※空文字許容
@@ -159,8 +159,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.shikuchoson IS '市町村郡'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.chome_banchi IS '丁目番地'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.tatemono_mei IS 'マンション名等※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.renrakusaki_1 IS '連絡先１※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.renrakusaki_2 IS '連絡先２※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.renrakusaki_1 IS 'TEL1※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.renrakusaki_2 IS 'TEL2※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.email IS 'メールアドレス※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.mail_magazine_flg IS 'メールマガジン（0:配信しない, 1:配信する）'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.birth_year IS '生年（西暦）'`);
@@ -171,8 +171,8 @@ export class CreateTDokusyaRireki1711900800017 implements MigrationInterface {
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_shikuchoson IS '配達先市町村郡※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_chome_banchi IS '配達先丁目番地※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_tatemono_mei IS '配達先建物名※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_renrakusaki_1 IS '配達先連絡先１※空文字許容'`);
-    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_renrakusaki_2 IS '配達先連絡先２※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_renrakusaki_1 IS '配達先TEL1※空文字許容'`);
+    await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_renrakusaki_2 IS '配達先TEL2※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_shimei_sei IS '配達先氏名（姓・漢字）※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_shimei_mei IS '配達先氏名（名・漢字）※空文字許容'`);
     await queryRunner.query(`COMMENT ON COLUMN t_dokusya_rireki.haitatsu_shimei_kana_sei IS '配達先氏名かな（姓）※空文字許容'`);

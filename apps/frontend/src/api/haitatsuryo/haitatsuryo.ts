@@ -22,6 +22,8 @@ export interface HaitatsuryoRow {
   hanbaiten_id: number;
   hanbaiten_code: string;
   hanbaiten_name: string;
+  /** 委託区分（m_code ITAKU_KUBUN: 1:振込, 2:日農委託, 9:その他）。 */
+  itaku_kubun: number | null;
   total_busu: number;
   total_kingaku: number;
   haitatsuryo_shiharai_cycle: number | null;

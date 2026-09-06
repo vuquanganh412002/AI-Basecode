@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import * as iconv from 'iconv-lite';
+import * as ExcelJS from 'exceljs';
 import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { Ja } from '@/database/entities/ja.entity';
@@ -16,11 +17,14 @@ import {
   DenshiShoninStatus,
   DokusyaShubetsu,
   DownloadType,
+  LogType,
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/common/enums';
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 import { DENSHI_DOKUSYA_SHUBETSU_YURYO } from '@/common/constants/denshi-dokusya-shubetsu.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { FILE_DOWNLOAD_TARGET_TABLE } from '@/common/constants/audit-target-table.constant';
 
 import { ExportKozaFurikaeDto } from './dto/export-koza-furikae.dto';
 import { PreviewKozaFurikaeDto } from './dto/preview-koza-furikae.dto';
@@ -36,10 +40,11 @@ import {
   spaces,
 } from './zengin-format';
 
-const SCREEN_NAME = '口座振替データ出力画面 (ACSMS-SCR-020)';
-const TABLE_NAME = 't_file_download';
 // 全銀フォーマットは固定長テキスト（CSV ではない）。Shift_JIS 固定。
 const ZENGIN_MIME = 'text/plain; charset=Shift_JIS';
+const XLSX_MIME =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const KOZA_FURIKAE_SHEET_NAME = '口座振替データ';
 
 /** ACSMS-API-020-001 初期データ（m_ja JASTEM 委託者情報 + 最終使用 m_shiten 金融機関支店情報）。 */
 export interface KozaFurikaeInitialData {
@@ -287,8 +292,8 @@ export class KozaFurikaeService {
         const ctx = buildAuditCtx(
           session,
           req,
-          SCREEN_NAME,
-          TABLE_NAME,
+          ScreenName.ACSMS_SCR_020,
+          FILE_DOWNLOAD_TARGET_TABLE,
           archived.fileDownloadId,
         );
         const afterValue = JSON.stringify({
@@ -324,7 +329,108 @@ export class KozaFurikaeService {
         throw err;
       }
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_020, FILE_DOWNLOAD_TARGET_TABLE, null),
+        AuditOperation.CREATE,
+        err as Error,
+      );
+      throw err;
+    }
+  }
+
+  // ─── ACSMS-API-020-004 — POST /api/v1/koza-furikae/export-excel ─────
+  /**
+   * レポートプレビュー（預金者名/引落支店/口座番号/金額）の内容を Excel で出力する
+   * （顧客要件 2026-08-26）。全銀フォーマット CSV（exportCsv）とは独立した
+   * 出力形式で、t_koza_furikae への upsert は行わない（帳票的な内容確認用の
+   * 出力であり、振替データの確定操作ではないため）。集計・失効単価チェック・
+   * 金額上書きロジックは exportCsv と共通。メール送信なし。
+   */
+  async exportExcel(
+    body: ExportKozaFurikaeDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<ExportKozaFurikaeResult> {
+    try {
+      await this.assertNoInactiveTanka(body, session);
+
+      const rows: KozaFurikaeAggRow[] = await this.fetchAggRows(body, session);
+      if (rows.length === 0) throw new NoTargetDataException();
+
+      const override = new Map<number, number>(
+        (body.rows ?? []).map((r) => [Number(r.dokusya_id), r.furikae_kingaku]),
+      );
+      const previewRows = rows.map(toKozaPreviewRow);
+      for (const r of previewRows) {
+        const edited = override.get(r.dokusya_id);
+        if (edited != null) r.furikae_kingaku = edited;
+      }
+
+      const buffer = await this.buildKozaFurikaeExcelBuffer(previewRows);
+
+      const ja = await this.fileArchive.resolveJa(session.ja_id);
+      const [y, m, d] = body.hikiotoshi_date.split('-');
+      // S3 アーカイブ名（検索性のため JA コード付き）。ダウンロード名（displayName）
+      // は JA コード無し・タイムスタンプ無し — exportCsv と同じ命名規約。
+      const baseName = `口座振替データ_${ja.code}_${y}年${m}月${d}日`;
+      const displayName = `口座振替データ_${y}年${m}月${d}日`;
+      const asciiFilename = buildAsciiFallbackFileName(displayName);
+
+      // 共通サービスで S3 保存 + t_file_upload 登録。
+      // S3 キー: koza-furikae/{ja_code}/{YYYY}/{baseName}_{yyyyMMddHHmmss}.xlsx
+      //（rootPrefix='' で reports/ プレフィックスなし）。
+      // scheduled_delete_date = 作成日(JST)+5年は本サービスが設定する。
+      const archived = await this.fileArchive.archive({
+        buffer,
+        baseName,
+        displayName,
+        category: 'koza-furikae',
+        rootPrefix: '',
+        year: y,
+        jaId: session.ja_id ?? null,
+        jaCode: ja.code,
+        session,
+        recordCount: previewRows.length,
+        contentType: XLSX_MIME,
+        extension: '.xlsx',
+        // 口座振替データ (SCR-020)：日農担当者DL不可（exportCsv と同方針）。
+        downloadType: DownloadType.KOZA_FURIKAE,
+        nichinoDownloadAllowedFlg: false,
+        targetMonth: body.target_month.slice(0, 7).replace('-', ''),
+      });
+
+      const ctx = buildAuditCtx(
+        session,
+        req,
+        ScreenName.ACSMS_SCR_020,
+        FILE_DOWNLOAD_TARGET_TABLE,
+        archived.fileDownloadId,
+      );
+      const afterValue = JSON.stringify({
+        target_month: body.target_month,
+        hikiotoshi_date: body.hikiotoshi_date,
+        kanri_shiten_ids: body.kanri_shiten_ids ?? [],
+        shiten_ids: body.shiten_ids ?? [],
+        koza_shiten_ids: body.koza_shiten_ids ?? [],
+        file_name: archived.filename,
+        s3_file_path: archived.key,
+        record_count: previewRows.length,
+      });
+      await this.auditLog.logExport(ctx, {
+        operation: AuditOperation.CREATE,
+        logType: LogType.FILE_OPERATION,
+        afterValue,
+      });
+
+      return { buffer, filename: archived.filename, asciiFilename, recordCount: previewRows.length };
+    } catch (err) {
+      if (
+        err instanceof NoTargetDataException ||
+        err instanceof InactiveTankaReferencedException
+      ) {
+        throw err;
+      }
+      await this.auditLog.logError(
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_020, FILE_DOWNLOAD_TARGET_TABLE, null),
         AuditOperation.CREATE,
         err as Error,
       );
@@ -475,6 +581,44 @@ export class KozaFurikaeService {
     const end = buildRecord(['9', spaces(119)], 'エンド');
 
     return [header, ...data, trailer, end].join('\r\n') + '\r\n';
+  }
+
+  /**
+   * レポートプレビュー（預金者名/引落支店/口座番号/金額）と同じ内容の Excel を
+   * 生成する。ヘッダ行 + データ行 + 末尾の合計行（プレビュー画面の `<tfoot>` 合計と同じ）。
+   */
+  private async buildKozaFurikaeExcelBuffer(
+    rows: KozaPreviewRow[],
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(KOZA_FURIKAE_SHEET_NAME);
+
+    const header = ['預金者名', '引落支店', '口座番号', '金額'];
+    const headerRow = sheet.addRow(header);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF1F5F9' },
+    };
+
+    let total = 0;
+    for (const row of rows) {
+      const kingaku = row.furikae_kingaku ?? 0;
+      total += kingaku;
+      sheet.addRow([
+        row.koza_meigi,
+        `${row.bank_branch_code} ${row.bank_branch_name}`.trim(),
+        row.hikiotoshi_koza_no,
+        kingaku,
+      ]);
+    }
+
+    const totalRow = sheet.addRow(['合計', '', '', total]);
+    totalRow.font = { bold: true };
+
+    const buf = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buf);
   }
 }
 

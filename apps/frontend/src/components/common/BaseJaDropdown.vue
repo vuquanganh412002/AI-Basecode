@@ -32,7 +32,10 @@ interface Props {
   perPage?: number;
   /**
    * ラベル形式。'code-name'（既定）は `${ja_code} ${ja_name}`、'name' は `${ja_name}` のみ。
-   * ACSMS-SCR-024 アカウント一覧は UI から ja_code を隠すため 'name' を使う。
+   * 現在このコンポーネントを使う画面はすべて既定の 'code-name' を使用（不具合修正
+   * 2026-08 — アカウント/お知らせ管理画面とも、対象JAを検索しやすいよう
+   * ファイルアップロード画面「対象JA」と同じ表示に統一した）。`ja_code` を
+   * UI から隠したい呼び出し側のための互換オプションとして残す。
    */
   labelFormat?: 'code-name' | 'name';
   /**
@@ -51,6 +54,13 @@ interface Props {
    * 絞り込み候補を揃えるために使う。拡大先の県は BE がセッションから決める。
    */
   scope?: 'own' | 'todofuken';
+  /**
+   * role_id で候補 JA を絞る（role_id=3:中央会 → chuokai_flg=TRUE のみ、
+   * role_id=4|5 → chuokai_flg=FALSE のみ）。ACSMS-SCR-025 アカウント登録/編集
+   * 画面で、選択中の役割に応じて JA 候補を絞り込むのに使う。null/undefined は
+   * 絞り込みなし。
+   */
+  roleId?: number | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -62,6 +72,7 @@ const props = withDefaults(defineProps<Props>(), {
   searchField: 'both',
   todofukenCode: null,
   scope: 'own',
+  roleId: null,
 });
 
 const emit = defineEmits<{
@@ -104,6 +115,8 @@ const {
     if (props.todofukenCode) extra.todofuken_code = props.todofukenCode;
     // 既定 'own' は送らない（BE の未指定と同義）。
     if (props.scope === 'todofuken') extra.scope = 'todofuken';
+    // role_id 絞り込みは指定時のみ送る（未指定は BE 側で絞り込みなし）。
+    if (props.roleId != null) extra.role_id = props.roleId;
     return extra;
   },
   resetTriggers: [todofukenCodeRef],
@@ -118,7 +131,7 @@ const {
 
 /**
  * antd `<a-select>` は option の `label` を表示する。既定は `{ja_code} {ja_name}` を
- * 合成し両方で照合可能に、'name' モードは code を隠す呼び出し側（ACSMS-SCR-024）向けに ja_name のみ。
+ * 合成し両方で照合可能に、'name' モードは code を隠したい呼び出し側向けに ja_name のみ。
  */
 const selectOptions = computed(() =>
   options.value.map((o) => ({

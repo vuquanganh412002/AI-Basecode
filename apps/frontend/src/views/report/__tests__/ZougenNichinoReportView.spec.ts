@@ -31,6 +31,7 @@ import { buildKanriShitenDropdownResponse } from '@test/fixtures/report.fixture'
 vi.mock('@/api/report/report', () => ({
   previewZougenNichino: vi.fn(),
   exportZougenNichino: vi.fn(),
+  exportZougenNichinoExcel: vi.fn(),
 }));
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   getKanriShitenDropdown: vi.fn(),
@@ -109,16 +110,20 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 
 const previewBtn = () => '[data-test="preview-btn"]';
 const exportBtn = () => '[data-test="export-btn"]';
+const exportExcelBtn = () => '[data-test="export-excel-btn"]';
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  const { previewZougenNichino, exportZougenNichino } = await import(
-    '@/api/report/report'
-  );
+  const { previewZougenNichino, exportZougenNichino, exportZougenNichinoExcel } =
+    await import('@/api/report/report');
   vi.mocked(previewZougenNichino).mockResolvedValue(buildNichinoPreviewResponse());
   // 出力成功 → JSON（PDFはブラウザへ返さず S3 保存 + メール通知）。
   vi.mocked(exportZougenNichino).mockResolvedValue({
     file_name: '増減通知_2026年03月01日_20260301120000.pdf',
+    recipient_count: 3,
+  });
+  vi.mocked(exportZougenNichinoExcel).mockResolvedValue({
+    file_name: '増減通知_2026年03月01日_20260301120000.xlsx',
     recipient_count: 3,
   });
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
@@ -498,5 +503,98 @@ describe('ZougenNichinoReportView — 電子帳票作成', () => {
     await flushPromises();
 
     expect(exportZougenNichino).toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 6. Excel出力（顧客要件 2026-08-26 — レポートプレビュー内容をExcelで出力）
+// ───────────────────────────────────────────────────────────────────────
+describe('ZougenNichinoReportView — Excel出力', () => {
+  /** プレビューでデータを取得して Excel出力 を活性化する。 */
+  async function previewWithData(wrapper: any): Promise<void> {
+    wrapper.vm.formState.tekiyo_date = '2026-03-01';
+    wrapper.vm.formState.kanri_shiten_id = [20];
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+  }
+
+  it('should render the Excel出力 button, disabled before preview', async () => {
+    const { wrapper } = await renderView();
+    const btn = wrapper.find(exportExcelBtn());
+    expect(btn.exists()).toBe(true);
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('should NOT open the confirm dialog nor call exportZougenNichinoExcel when clicked with no preview data', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenNichinoExcel } = await import('@/api/report/report');
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+    expect(Modal.confirm).not.toHaveBeenCalled();
+    expect(exportZougenNichinoExcel).not.toHaveBeenCalled();
+  });
+
+  it('should open the same ACSMS-MSG-029-005 confirm dialog when Excel出力 is clicked after preview returns data', async () => {
+    const { wrapper } = await renderView();
+    await previewWithData(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(Modal.confirm).toHaveBeenCalledTimes(1);
+    const opts = vi.mocked(Modal.confirm).mock.calls[0]?.[0] as any;
+    const dialogText = `${opts?.title ?? ''}${opts?.content ?? ''}`;
+    expect(dialogText).toContain(
+      '増減通知を作成して日農担当者へメール送信を実行します。よろしいですか？',
+    );
+  });
+
+  it('should call exportZougenNichinoExcel (NOT exportZougenNichino) and show a success toast (NO download) when the confirm dialog is accepted', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenNichinoExcel, exportZougenNichino } = await import(
+      '@/api/report/report'
+    );
+    await previewWithData(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportZougenNichinoExcel).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(exportZougenNichinoExcel).mock.calls[0]?.[0];
+    expect(arg.tekiyo_date).toBe('2026-03-01');
+    // PDF出力（電子帳票作成）は呼ばれない — 別の読み取り専用出力。
+    expect(exportZougenNichino).not.toHaveBeenCalled();
+    // Excelはブラウザへダウンロードしない（S3 保存 + メール通知のみ）。
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(message.success).toHaveBeenCalledWith('出力しました。メールを送信しました。');
+  });
+
+  it('should show 対象のデータが存在しません。 and NOT toast when Excel出力 returns reports:[] (no data)', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenNichinoExcel } = await import('@/api/report/report');
+    await previewWithData(wrapper);
+    vi.mocked(exportZougenNichinoExcel).mockResolvedValueOnce({ reports: [] });
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('対象のデータが存在しません。');
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(message.success).not.toHaveBeenCalled();
+  });
+
+  it('should still call exportZougenNichinoExcel when it rejects with 500 (interceptor handles the toast)', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenNichinoExcel } = await import('@/api/report/report');
+    await previewWithData(wrapper);
+    vi.mocked(exportZougenNichinoExcel).mockRejectedValueOnce({
+      error_code: 'INTERNAL_SERVER_ERROR',
+    });
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportZougenNichinoExcel).toHaveBeenCalled();
   });
 });

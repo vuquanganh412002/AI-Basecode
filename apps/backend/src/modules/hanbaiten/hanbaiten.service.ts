@@ -1,18 +1,22 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository, type SelectQueryBuilder } from 'typeorm';
 import type { Request } from 'express';
+import * as ExcelJS from 'exceljs';
 
-import { AuditOperation, ItakuKubun } from '@/common/enums';
+import { AuditOperation, ItakuKubun, LogType, ResultStatus } from '@/common/enums';
 import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
+import { TODOFUKEN_CODE_NOT_FOUND_MESSAGE } from '@/common/constants/todofuken.constant';
+import { timestampForFilenameJst } from '@/common/utils/datetime';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import {
-  ConflictException,
   DuplicateCodeException,
   NotFoundException,
   ValidationException,
@@ -23,6 +27,10 @@ import {
   assertJaScope,
   fetchFkInJa,
 } from '@/common/utils/data-scope';
+import {
+  assertNoRelatedRows,
+  type RelatedTableEntry,
+} from '@/common/utils/fk-conflict';
 import { isUniqueViolation } from '@/common/utils/db-errors';
 import { assertMCodeValues } from '@/common/utils/m-code-validation';
 import { paginate, clampPerPage, type PaginatedResponse } from '@/common/utils/paginate';
@@ -41,12 +49,24 @@ import {
   type HanbaitenDetailResponse,
   type HanbaitenDetailRow,
 } from './hanbaiten-form.mapper';
-import { toHanbaitenListItem, type HanbaitenListItem } from './hanbaiten.mapper';
+import {
+  toHanbaitenListItem,
+  toHanbaitenExcelRow,
+  HANBAITEN_EXPORT_HEADERS,
+  type HanbaitenListItem,
+} from './hanbaiten.mapper';
+import { ExportNoDataException } from './exceptions/export-no-data.exception';
+import { ExportLimitExceededException } from './exceptions/export-limit-exceeded.exception';
 
 /** 監査コンテキスト用ラベル（api.md §4.6 INSERT INTO t_log）。 */
-const SCREEN_NAME = '販売店明細検索画面 (ACSMS-SCR-018)';
-const SCR017_SCREEN_NAME = '販売店情報登録画面 (ACSMS-SCR-017)';
 const TABLE_NAME = 'm_hanbaiten';
+
+/**
+ * Excel出力の最大行数（顧客CR 2026-08-24）。dokusya（購読者・30,000件）より
+ * 大幅に小さい — 販売店は1JAあたり多くて数百件、NICHINO_* の全JA横断でも
+ * この上限で十分な余裕を持つ。超過時は 409 `EXPORT_LIMIT_EXCEEDED`。
+ */
+const EXPORT_MAX_ROWS = 5000;
 
 /**
  * itaku_kubun===1（振込）のとき必須になる項目（画面設計書 v1.2 §3.1）。
@@ -116,18 +136,11 @@ const SORT_COLUMN_MAP: Record<HanbaitenSearchSortBy, string> = {
 
 /**
  * 非ソフト削除行が販売店を参照していると DELETE をブロックするテーブル
- * （api.md §4.4）。依存テーブル追加=ここに追記。
- *
- * NOTE: `t_dokusya_rireki`は 購読者(dokusya) SCRがテーブルを作るまで意図的に
- * 省略。含めると prod で全 DELETE が 500（テーブル未存在）。dokusya migration
- * マージ後に `{ table: 't_dokusya_rireki', hasDeletedAt: false }` 行 +
- * 対応 spec を復活。api.md §4.4 ACSMS-SCR-018 は両テーブルを列挙 — 意図的な一時逸脱。
+ * （api.md §4.4）。依存テーブル追加=ここに追記。`assertNoRelatedRows`
+ * （`@/common/utils/fk-conflict`）で判定する。
  */
-const RELATED_TABLES: ReadonlyArray<{
-  table: string;
-  hasDeletedAt: boolean;
-}> = [
-  { table: 't_dokusya', hasDeletedAt: true },
+const RELATED_TABLES: readonly RelatedTableEntry[] = [
+  't_dokusya',
   // 購読者履歴テーブル — append-only（deleted_at 列なし）。api.md §4.4 の
   // 履歴チェック SQL に対応（`AND deleted_at IS NULL` を付けない）。
   { table: 't_dokusya_rireki', hasDeletedAt: false },
@@ -231,7 +244,31 @@ export class HanbaitenService {
       | 'DESC';
 
     const qb = this.repo.createQueryBuilder('m');
+    this.applySearchFilters(qb, query, session);
 
+    // [sort-paginate] m.hanbaiten_id DESC は安定タイブレーカー（同一ソートキーの
+    // バッチ取込を挿入順に並べる。primary は id でないので常に副キーとして効く）。
+    const orderColumn = SORT_COLUMN_MAP[sort_by] ?? SORT_COLUMN_MAP.updated_at;
+    qb.orderBy(orderColumn, sort_order)
+      .addOrderBy('m.hanbaiten_id', 'DESC')
+      .take(per_page)
+      .skip((page - 1) * per_page);
+
+    const [rows, total] = await qb.getManyAndCount();
+    const data = await this.enrichHanbaitenRows(rows);
+
+    return paginate(data, total, page, per_page);
+  }
+
+  /**
+   * `findAll` / `exportExcel` が共有する検索条件（DataScope + フィルタ）。
+   * ソート・ページングは呼出側が個別に付与する（export はページングなし）。
+   */
+  private applySearchFilters(
+    qb: SelectQueryBuilder<Hanbaiten>,
+    query: SearchHanbaitenDto,
+    session: SessionPayload,
+  ): void {
     qb.where('m.deleted_at IS NULL');
 
     // [data-scope] restricted role は ja_id=session.ja_id、NICHINO_* は bypass。
@@ -243,11 +280,14 @@ export class HanbaitenService {
       qb.andWhere('m.ja_id = :qja', { qja: query.ja_id });
     }
 
-    // [filter] haiten_flg 完全一致。未チェック/省略→営業中(false 既定)、チェック→廃店(true)
-    // （顧客 2026-05-26: ラベル「廃店を含む」→「廃店フラグ」）。
-    qb.andWhere('m.haiten_flg = :haitenFlg', {
-      haitenFlg: query.haiten_flg === true,
-    });
+    // [filter] haiten_flg — 未チェック/省略→営業中のみ(haiten_flg=false)、
+    // チェック→廃店も含めて全件表示（フィルタなし）。
+    // 顧客CR 2026-08-24: 2026-05-26 の完全一致仕様（チェック時は廃店のみに
+    // 絞り込む）を撤回し、チェックボックスラベルとあわせて「含む」の
+    // 挙動へ戻す。
+    if (query.haiten_flg !== true) {
+      qb.andWhere('m.haiten_flg = false');
+    }
 
     // [filter] ILIKE 部分一致（各 query が非空のときのみ発行）。
     if (query.hanbaiten_code) {
@@ -292,19 +332,16 @@ export class HanbaitenService {
         { activeTankaFlg: query.active_tanka_flg },
       );
     }
+  }
 
-    // [sort-paginate] m.hanbaiten_id DESC は安定タイブレーカー（同一ソートキーの
-    // バッチ取込を挿入順に並べる。primary は id でないので常に副キーとして効く）。
-    const orderColumn = SORT_COLUMN_MAP[sort_by] ?? SORT_COLUMN_MAP.updated_at;
-    qb.orderBy(orderColumn, sort_order)
-      .addOrderBy('m.hanbaiten_id', 'DESC')
-      .take(per_page)
-      .skip((page - 1) * per_page);
-
-    const [rows, total] = await qb.getManyAndCount();
-
-    // todofuken_name を1往復でバッチ取得（ShitenService → kanri_shiten_name と
-    // 同パターン）。行毎 JOIN より安く、親行はページサイズで上限。
+  /**
+   * `findAll` / `exportExcel` が共有する行エンリッチ — todofuken_name / ja_code /
+   * ja_name を1往復ずつバッチ取得（ShitenService → kanri_shiten_name と同パターン）
+   * し、`HanbaitenListItem` へマップする。
+   */
+  private async enrichHanbaitenRows(
+    rows: Hanbaiten[],
+  ): Promise<HanbaitenListItem[]> {
     const codes = [...new Set(rows.map((r) => r.todofukenCode).filter(Boolean))];
     const todofukenRows =
       codes.length > 0
@@ -314,7 +351,6 @@ export class HanbaitenService {
       todofukenRows.map((t) => [t.todofukenCode, t.todofukenName]),
     );
 
-    // ja_code / ja_name を1往復でバッチ取得（上の todofuken_name と同パターン）。
     // NICHINO_STAFF は1 JA、JA スコープ役は同一 ja_id なので IN リストは極小。
     const jaIds = [
       ...new Set(rows.map((r) => Number(r.jaId)).filter((n) => Number.isFinite(n))),
@@ -331,7 +367,7 @@ export class HanbaitenService {
       jaRows.map((j) => [Number(j.ja_id), j]),
     );
 
-    const data = rows.map((r) => {
+    return rows.map((r) => {
       const ja = jaMap.get(Number(r.jaId));
       return toHanbaitenListItem(
         r,
@@ -340,8 +376,116 @@ export class HanbaitenService {
         ja?.ja_name ?? '',
       );
     });
+  }
 
-    return paginate(data, total, page, per_page);
+  // ─── API-018-003 — GET /api/v1/hanbaiten/export ──────────────────────
+  /**
+   * 検索結果の Excel(xlsx) 出力（顧客CR 2026-08-24）。`findAll` と同じ検索条件
+   * （DataScope + フィルタ）を共有し、ページングなしで最大 `EXPORT_MAX_ROWS`
+   * 件まで出力する。0件→404 `EXPORT_NO_DATA`、上限超過→409
+   * `EXPORT_LIMIT_EXCEEDED`。監査ログは `EXPORT_EXCEL` 操作で1回記録。
+   */
+  async exportExcel(
+    query: SearchHanbaitenDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<{ buffer: Buffer; filename: string; headers: readonly string[] }> {
+    const auditCtx = buildAuditCtx(
+      session,
+      req,
+      ScreenName.ACSMS_SCR_018,
+      TABLE_NAME,
+      null,
+    );
+
+    try {
+      const qb = this.repo.createQueryBuilder('m');
+      this.applySearchFilters(qb, query, session);
+
+      const total = await qb.getCount();
+      if (total === 0) {
+        throw new ExportNoDataException();
+      }
+      if (total > EXPORT_MAX_ROWS) {
+        throw new ExportLimitExceededException();
+      }
+
+      // pagination なし — 防御として明示 LIMIT cap。安定した並びのため
+      // hanbaiten_id ASC（findAll の既定 updated_at desc とは無関係 — 出力順は
+      // 一覧の並び順ではなく決定的な連番順で十分）。
+      qb.orderBy('m.hanbaiten_id', 'ASC').take(EXPORT_MAX_ROWS);
+      const rows = await qb.getMany();
+      const items = await this.enrichHanbaitenRows(rows);
+
+      const filename = `販売店一覧出力_${timestampForFilenameJst()}.xlsx`;
+      const buffer = await this.buildExportExcelBuffer(items);
+
+      await this.auditLog.logOperation({
+        logType: LogType.USER_OPERATION,
+        accountId: session.account_id,
+        jaId: session.ja_id,
+        gamenName: ScreenName.ACSMS_SCR_018,
+        operation: AuditOperation.EXPORT_EXCEL,
+        resultStatus: ResultStatus.SUCCESS,
+        targetId: null,
+        targetTable: TABLE_NAME,
+        afterValue: JSON.stringify({
+          ja_id: query.ja_id ?? null,
+          haiten_flg: query.haiten_flg ?? false,
+          record_count: total,
+        }),
+        ipAddress: auditCtx.ipAddress,
+        userAgent: auditCtx.userAgent,
+      });
+
+      return { buffer, filename, headers: HANBAITEN_EXPORT_HEADERS };
+    } catch (err) {
+      if (
+        err instanceof ExportNoDataException ||
+        err instanceof ExportLimitExceededException
+      ) {
+        throw err;
+      }
+      await this.auditLog.logError(auditCtx, AuditOperation.EXPORT_EXCEL, err as Error);
+      throw err;
+    }
+  }
+
+  /**
+   * Excel workbook buffer を生成。worksheet '販売店一覧' 1枚、太字ヘッダ行、
+   * 続いて `toHanbaitenExcelRow` でマップしたデータ行。委託区分 / 振込手数料負担区分は
+   * m_code ラベルに解決（CodeService は @Global でキャッシュ済ゆえ行毎ルックアップは
+   * 実質ゼロコスト）。`codeService` 未配線時（SCR-018 の軽量 spec 構築）は生の
+   * コード値へフォールバックする。
+   */
+  private async buildExportExcelBuffer(rows: HanbaitenListItem[]): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'agrinews';
+    const sheet = workbook.addWorksheet('販売店一覧');
+    sheet.addRow([...HANBAITEN_EXPORT_HEADERS]);
+    const headerRow = sheet.getRow(1);
+    headerRow.font = { bold: true };
+    sheet.columns = HANBAITEN_EXPORT_HEADERS.map(() => ({ width: 18 }));
+    for (const row of rows) {
+      sheet.addRow(
+        toHanbaitenExcelRow(row, {
+          itaku_kubun:
+            row.itaku_kubun == null
+              ? ''
+              : this.codeService?.getLabel('ITAKU_KUBUN', row.itaku_kubun) ??
+                String(row.itaku_kubun),
+          furikomi_tesuryo_futan_kubun:
+            row.furikomi_tesuryo_futan_kubun == null
+              ? ''
+              : this.codeService?.getLabel(
+                  'TESURYO_KUBUN',
+                  row.furikomi_tesuryo_futan_kubun,
+                ) ?? String(row.furikomi_tesuryo_futan_kubun),
+        }),
+      );
+    }
+    const buf = await workbook.xlsx.writeBuffer();
+    return Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
   }
 
   // ─── ACSMS-API-COMMON — Hanbaiten dropdown (SCR-011) ────────────────
@@ -453,16 +597,13 @@ export class HanbaitenService {
 
     // [fk-conflict-check] — 下の [soft-delete] より前に短絡。ConflictException は
     // ユーザー修正可能な 409（内部失敗ではない）ので try/catch の外。
-    for (const { table, hasDeletedAt } of RELATED_TABLES) {
-      const sql = hasDeletedAt
-        ? `SELECT COUNT(*) AS count FROM ${table} WHERE hanbaiten_id = $1 AND deleted_at IS NULL`
-        : `SELECT COUNT(*) AS count FROM ${table} WHERE hanbaiten_id = $1`;
-      const rows = await this.dataSource.query(sql, [id]);
-      const count = Number(rows?.[0]?.count ?? 0);
-      if (count > 0) {
-        throw new ConflictException(CONFLICT_MESSAGE);
-      }
-    }
+    await assertNoRelatedRows(
+      this.dataSource,
+      RELATED_TABLES,
+      'hanbaiten_id',
+      id,
+      CONFLICT_MESSAGE,
+    );
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -480,18 +621,18 @@ export class HanbaitenService {
         // 参加するので原子性を保つ（省くと standalone repo 経由でロールバックを
         // 生き残り孤立監査行になる）。
         await this.auditLog.logDelete(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_018, TABLE_NAME, id),
           before,
           manager,
         );
       });
 
-      return { message: '削除しました。' };
+      return { message: SuccessMessage.DELETED };
     } catch (err) {
       // [audit-error-log] — ロールバック外でトレースを残す（業務書込破棄時も
       // 生存）。`manager` を渡さない — 渡すと INSERT もロールバックされる。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_018, TABLE_NAME, id),
         AuditOperation.DELETE,
         err as Error,
       );
@@ -558,6 +699,16 @@ export class HanbaitenService {
     ]);
     assertConditionalRequired(dto);
 
+    // [code-master-check] — 都道府県コード存在検証（顧客CR 2026-08-24 —
+    // todofuken_code が JA 追従の read-only から自由選択になったため、
+    // m_todofuken に実在する値かを検証する。JA / 管理支店と同じ規約）。
+    const td = await this.todofukenRepo.findOne({
+      where: { todofukenCode: dto.todofuken_code },
+    });
+    if (!td) {
+      throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
+    }
+
     // [data-scope] ja_id 解決。NICHINO_*（session.ja_id null）は 代行入力 で任意 JA
     // を代行 — dto.ja_id（CreateHanbaitenDto の任意フィールド）に fallback。スコープ役は
     // 常に session 値を使い、body の ja_id は無視してクロステナント注入を防ぐ。
@@ -605,7 +756,7 @@ export class HanbaitenService {
       hanbaitenName: dto.hanbaiten_name,
       hanbaitenNameKana: dto.hanbaiten_name_kana ?? '',
       torihikisakiNo: dto.torihikisaki_no ?? '',
-      todofukenCode: dto.todofuken_code ?? '',
+      todofukenCode: dto.todofuken_code,
       yubinNo: dto.yubin_no ?? '',
       address: dto.address ?? '',
       tel: dto.tel ?? '',
@@ -630,7 +781,7 @@ export class HanbaitenService {
     };
 
     const auditCtxFactory = (targetId: number | null) =>
-      buildAuditCtx(session, req, SCR017_SCREEN_NAME, TABLE_NAME, targetId);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_017, TABLE_NAME, targetId);
 
     let savedId: number;
     try {
@@ -679,7 +830,7 @@ export class HanbaitenService {
       // 防御的 — commit と SELECT の間で挿入行が消えた場合(競合)のみ発火。
       throw new NotFoundException('販売店');
     }
-    return { data: toHanbaitenDetail(row), message: '登録しました。' };
+    return { data: toHanbaitenDetail(row), message: SuccessMessage.CREATED };
   }
 
   // ─── ACSMS-API-017-003 — PUT /api/v1/hanbaiten/:hanbaiten_id ─────────
@@ -719,7 +870,9 @@ export class HanbaitenService {
     assertConditionalRequired(dto);
 
     // [fetch-target] 存在 + [data-scope] ガード — 無スコープ取得後 ja_id で assert
-    // （スコープ外 → 404、NICHINO_* は helper で回避）。
+    // （スコープ外 → 404、NICHINO_* は helper で回避）。code-master-check より先に
+    // 行う — 404マスクを優先し、スコープ外の存在確認を都道府県エラーで漏らさない
+    // （ja.service.ts update と同じ順序）。
     const before = await this.repo.findOne({
       where: { hanbaitenId, deletedAt: IsNull() },
     });
@@ -727,6 +880,14 @@ export class HanbaitenService {
       throw new NotFoundException('販売店');
     }
     assertJaScope(before.jaId, session, '販売店');
+
+    // [code-master-check] — 都道府県コード存在検証（create と同じ規約）。
+    const td = await this.todofukenRepo.findOne({
+      where: { todofukenCode: dto.todofuken_code },
+    });
+    if (!td) {
+      throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
+    }
 
     // FK ガード + Layer 4 DataScope — 新 haitatsuryo_tanka_id（指定時）は存在し、
     // 既存販売店(before.jaId)と同一 JA に属する必要がある。制限役では session.ja_id
@@ -750,7 +911,7 @@ export class HanbaitenService {
       hanbaitenName: dto.hanbaiten_name,
       hanbaitenNameKana: dto.hanbaiten_name_kana ?? '',
       torihikisakiNo: dto.torihikisaki_no ?? '',
-      todofukenCode: dto.todofuken_code ?? '',
+      todofukenCode: dto.todofuken_code,
       yubinNo: dto.yubin_no ?? '',
       address: dto.address ?? '',
       tel: dto.tel ?? '',
@@ -776,7 +937,7 @@ export class HanbaitenService {
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCR017_SCREEN_NAME,
+      ScreenName.ACSMS_SCR_017,
       TABLE_NAME,
       hanbaitenId,
     );
@@ -805,7 +966,7 @@ export class HanbaitenService {
     if (!row) {
       throw new NotFoundException('販売店');
     }
-    return { data: toHanbaitenDetail(row), message: '更新しました。' };
+    return { data: toHanbaitenDetail(row), message: SuccessMessage.UPDATED };
   }
 
   // ─── helpers ─────────────────────────────────────────────────────────

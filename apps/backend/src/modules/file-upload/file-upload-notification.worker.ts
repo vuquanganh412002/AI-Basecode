@@ -8,6 +8,7 @@ import { IsNull, Repository } from 'typeorm';
 
 import { collectAccountEmails } from '@/common/utils/account-emails';
 import { NotificationStatus } from '@/common/constants/notification-status.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { JobFailureException } from '@/common/exceptions/job-failure.exception';
 import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
 import { Account } from '@/database/entities/account.entity';
@@ -44,9 +45,6 @@ import type { FileUploadNotificationJob } from './notification-queue.service';
 export class FileUploadNotificationWorker extends WorkerHost {
   private readonly logger = new Logger(FileUploadNotificationWorker.name);
 
-  // [audit-screen-name] upload controller の監査行と同じ ACSMS-SCR-023 画面識別子。
-  // gamen_name で絞れば upload + notification フェーズを相関できる。
-  private static readonly SCREEN_NAME = 'ファイルアップロード画面 (ACSMS-SCR-023)';
   private static readonly TABLE_NAME = 't_file_upload';
 
   constructor(
@@ -198,7 +196,7 @@ export class FileUploadNotificationWorker extends WorkerHost {
         {
           accountId: uploaded_by,
           jaId: ja_id,
-          screen: FileUploadNotificationWorker.SCREEN_NAME,
+          screen: ScreenName.ACSMS_SCR_023,
           table: FileUploadNotificationWorker.TABLE_NAME,
           targetId: file_upload_id,
           ipAddress: '',

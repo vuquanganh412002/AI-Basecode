@@ -67,6 +67,8 @@ describe('Shiten — integration list + delete (SCR-006 over pg-mem)', () => {
     // Reset state between tests so DELETE / list expectations don't leak.
     await ctx.dataSource.query(`DELETE FROM t_dokusya`);
     await ctx.dataSource.query(`DELETE FROM m_shiten`);
+    await ctx.dataSource.query(`DELETE FROM m_account`);
+    await ctx.dataSource.query(`DELETE FROM t_dokusya_rireki`);
   });
 
   const http = () => request(ctx.app.getHttpServer() as Server);
@@ -207,6 +209,60 @@ describe('Shiten — integration list + delete (SCR-006 over pg-mem)', () => {
       const cookie = await chuokaiCookie(1);
       const res = await http().delete(`/api/v1/shiten/${shitenId}`).set('Cookie', cookie).expect(409);
       expect(res.body.error_code).toBe('CONFLICT');
+    });
+
+    it('should return 409 CONFLICT when m_account references the shiten (fk_m_account_shiten ON DELETE RESTRICT, 不具合修正2026-08)', async () => {
+      const shitenId = await insertShiten({ shitenCode: '001', shitenName: '本店' });
+      await ctx.dataSource.query(
+        `INSERT INTO m_account (login_id, password_hash, account_name, role_id, ja_id, shiten_id,
+                                paper_flg, denshi_flg, email, login_failure_count,
+                                account_lock_flg, biko, mfa_enable_flg,
+                                created_at, created_by, updated_at, updated_by)
+         VALUES ('related-user', 'hash', '関連アカウント', 1, 1, $1,
+                 false, false, 'r@example.com', 0,
+                 false, '', false,
+                 NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+        [shitenId],
+      );
+
+      const cookie = await chuokaiCookie(1);
+      const res = await http().delete(`/api/v1/shiten/${shitenId}`).set('Cookie', cookie).expect(409);
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const rows = await ctx.dataSource.query(
+        `SELECT deleted_at FROM m_shiten WHERE shiten_id = $1`,
+        [shitenId],
+      );
+      expect(rows[0].deleted_at).toBeNull();
+    });
+
+    it('should return 409 CONFLICT when t_dokusya_rireki has related rows (append-only, no deleted_at, 不具合修正2026-08)', async () => {
+      const shitenId = await insertShiten({ shitenCode: '001', shitenName: '本店' });
+      // t_dokusya_rireki is a full TypeORM-synchronized entity (not stubbed
+      // here) — provide every NOT NULL column so the INSERT succeeds.
+      await ctx.dataSource.query(
+        `INSERT INTO t_dokusya_rireki
+           (dokusya_id, rireki_no, ja_id, kanri_shiten_id, shiten_id, dokusya_shubetsu, tetsuzuki_shurui,
+            shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+            yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1,
+            shiharai_hoho, dokusya_kaishi_date)
+         VALUES
+           (1, 1, 1, 1, $1, 1, 1,
+            'テスト', '太郎', 'テスト', 'タロウ',
+            '1000001', '13', '千代田区', '1-1-1', '0312345678',
+            1, '2026-01-01')`,
+        [shitenId],
+      );
+
+      const cookie = await chuokaiCookie(1);
+      const res = await http().delete(`/api/v1/shiten/${shitenId}`).set('Cookie', cookie).expect(409);
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const rows = await ctx.dataSource.query(
+        `SELECT deleted_at FROM m_shiten WHERE shiten_id = $1`,
+        [shitenId],
+      );
+      expect(rows[0].deleted_at).toBeNull();
     });
 
     it('should return 401 when no session cookie is provided', async () => {

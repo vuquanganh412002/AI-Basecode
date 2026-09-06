@@ -14,6 +14,7 @@ import { useNotify } from '@/composables/useNotify';
 import {
   previewZougenNichino,
   exportZougenNichino,
+  exportZougenNichinoExcel,
   type ZougenNichinoQuery,
   type ZougenNichinoPreviewData,
 } from '@/api/report/report';
@@ -193,6 +194,39 @@ async function runExport(): Promise<void> {
   }
 }
 
+/**
+ * Excel出力 — レポートプレビューと同じ内容を実際の帳票に近い体裁でExcel出力する
+ * （顧客要件2026-08-26）。電子帳票作成（PDF）と同じくブラウザへはダウンロードせず、
+ * 日農担当者へメール送信するため同じ確認ダイアログ（ACSMS-MSG-029-005）を挟む。
+ */
+function onExportExcel(): void {
+  if (!validate()) return;
+  Modal.confirm({
+    title: 'Excel出力の確認',
+    content:
+      '増減通知を作成して日農担当者へメール送信を実行します。よろしいですか？',
+    okText: 'はい',
+    cancelText: 'いいえ',
+    onOk: () => runExportExcel(),
+  });
+}
+
+async function runExportExcel(): Promise<void> {
+  try {
+    const result = await exportZougenNichinoExcel(buildExportQuery());
+    if (Array.isArray(result.reports) && result.reports.length === 0) {
+      previewData.value = null;
+      noDataMessage.value = true;
+      return;
+    }
+    // Excelはブラウザへダウンロードしない。BE が S3 に保存し日農担当者へメール
+    // 通知済み。成功トーストのみ表示する。
+    notify.success('出力しました。メールを送信しました。');
+  } catch {
+    // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
+  }
+}
+
 // 管理支店の選択肢ロードは BaseKanriShitenSelect が自前で行う
 // （コード/名称検索・50件ずつ無限スクロール）。
 
@@ -266,6 +300,13 @@ defineExpose({ formState });
         </a-button>
         <a-button :disabled="!canUse || !hasReports" data-test="export-btn" @click="onExport">
           電子帳票作成
+        </a-button>
+        <a-button
+          :disabled="!canUse || !hasReports"
+          data-test="export-excel-btn"
+          @click="onExportExcel"
+        >
+          Excel出力
         </a-button>
       </div>
     </div>

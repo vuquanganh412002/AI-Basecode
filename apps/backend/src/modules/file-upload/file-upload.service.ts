@@ -33,6 +33,8 @@ import {
 } from '@/common/utils/file-delivery';
 import { FileUploadStatus } from '@/common/constants/file-upload-status.constant';
 import { NotificationStatus } from '@/common/constants/notification-status.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import { FileDownload } from '@/database/entities/file-download.entity';
 import { FileUpload } from '@/database/entities/file-upload.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
@@ -60,8 +62,6 @@ export interface UploadedMulterFile {
   size: number;
 }
 
-const SCREEN_NAME = 'ファイルダウンロード画面 (ACSMS-SCR-022)';
-const SCR023_SCREEN = 'ファイルアップロード画面 (ACSMS-SCR-023)';
 const TABLE_NAME = 't_file_upload';
 const PREVIEW_TTL_SECONDS = 3600;
 /** 削除予定日の既定オフセット（アップロード日 + N 日）。FE が値を省略した時のみ適用。 */
@@ -533,7 +533,7 @@ export class FileUploadService {
               logType: LogType.FILE_OPERATION,
               accountId: session.account_id,
               jaId,
-              gamenName: SCR023_SCREEN,
+              gamenName: ScreenName.ACSMS_SCR_023,
               operation: AuditOperation.CREATE,
               resultStatus: ResultStatus.SUCCESS,
               targetId: Number(saved.fileUploadId),
@@ -572,7 +572,7 @@ export class FileUploadService {
       const errorCtx = buildAuditCtx(
         session,
         req,
-        SCR023_SCREEN,
+        ScreenName.ACSMS_SCR_023,
         TABLE_NAME,
         null,
       );
@@ -642,7 +642,7 @@ export class FileUploadService {
         stack: (err as Error).stack,
       });
       await this.compensateStorage(uploadedKeys);
-      const errorCtx = buildAuditCtx(session, req, SCR023_SCREEN, TABLE_NAME, null);
+      const errorCtx = buildAuditCtx(session, req, ScreenName.ACSMS_SCR_023, TABLE_NAME, null);
       await this.auditLog.logError(errorCtx, AuditOperation.CREATE, err as Error);
       throw err;
     }
@@ -701,7 +701,7 @@ export class FileUploadService {
     const ctx = buildAuditCtx(
       session,
       req,
-      SCR023_SCREEN,
+      ScreenName.ACSMS_SCR_023,
       TABLE_NAME,
       Number(before.fileUploadId),
     );
@@ -772,7 +772,7 @@ export class FileUploadService {
       }
     }
 
-    return { message: '削除しました。' };
+    return { message: SuccessMessage.DELETED };
   }
 
   /**
@@ -906,7 +906,7 @@ export class FileUploadService {
     const ctx = buildAuditCtx(
       session,
       req,
-      SCR023_SCREEN,
+      ScreenName.ACSMS_SCR_023,
       TABLE_NAME,
       Number(row.fileUploadId),
     );
@@ -967,7 +967,7 @@ export class FileUploadService {
     );
     const fileName = `一括ダウンロード_${compactTimestampJst()}.zip`;
 
-    const ctx = buildAuditCtx(session, req, SCR023_SCREEN, TABLE_NAME, null);
+    const ctx = buildAuditCtx(session, req, ScreenName.ACSMS_SCR_023, TABLE_NAME, null);
     try {
       await this.auditLog.logOperation({
         logType: LogType.FILE_OPERATION,

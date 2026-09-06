@@ -27,6 +27,7 @@ import {
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { DEFAULT_FRONTEND_URL } from '@/config/config-defaults.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { Account } from '@/database/entities/account.entity';
 import { MfaOtp } from '@/database/entities/mfa-otp.entity';
 import { Role } from '@/database/entities/role.entity';
@@ -58,8 +59,7 @@ const PASSWORD_RESET_OTP_TYPE = OtpType.PASSWORD_RESET;
 // PASSWORD_RESET_COOLDOWN_MINUTES ごと1通。t_mfa_otp.created_at で計測（無効化後も
 // 行は残る）ため、事前トークン無効化(4.5a)ではクールダウンはリセットされない。
 const PASSWORD_RESET_COOLDOWN_MINUTES = 5;
-const SCREEN_NAME_SCR012 = 'パスワード再設定画面 (ACSMS-SCR-012)';
-const TABLE_M_ACCOUNT = 'm_account';
+const TABLE_NAME = 'm_account';
 const TABLE_T_MFA_OTP = 't_mfa_otp';
 
 export interface LoginContext {
@@ -440,7 +440,7 @@ export class AuthService {
           logType: LogType.USER_OPERATION,
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
-          gamenName: SCREEN_NAME_SCR012,
+          gamenName: ScreenName.ACSMS_SCR_012,
           operation: AuditOperation.PASSWORD_RESET_REQUEST,
           resultStatus: ResultStatus.SUCCESS,
           targetTable: TABLE_T_MFA_OTP,
@@ -455,7 +455,7 @@ export class AuthService {
         {
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
-          screen: SCREEN_NAME_SCR012,
+          screen: ScreenName.ACSMS_SCR_012,
           table: TABLE_T_MFA_OTP,
           targetId: null,
           ipAddress: ctx.ipAddress ?? '',
@@ -567,10 +567,10 @@ export class AuthService {
           logType: LogType.USER_OPERATION,
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
-          gamenName: SCREEN_NAME_SCR012,
+          gamenName: ScreenName.ACSMS_SCR_012,
           operation: AuditOperation.PASSWORD_RESET,
           resultStatus: ResultStatus.SUCCESS,
-          targetTable: TABLE_M_ACCOUNT,
+          targetTable: TABLE_NAME,
           targetId: accountId,
           afterValue: JSON.stringify({ event: 'password_reset' }),
           ipAddress: ctx.ipAddress,
@@ -582,8 +582,8 @@ export class AuthService {
         {
           accountId,
           jaId: account.jaId === null ? null : Number(account.jaId),
-          screen: SCREEN_NAME_SCR012,
-          table: TABLE_M_ACCOUNT,
+          screen: ScreenName.ACSMS_SCR_012,
+          table: TABLE_NAME,
           targetId: accountId,
           ipAddress: ctx.ipAddress ?? '',
           userAgent: ctx.userAgent ?? '',

@@ -671,6 +671,7 @@ defineExpose({
         <BaseHanbaitenDropdown
           v-model:value="state.filters.hanbaiten_id"
           :ja-id="filterJaId"
+          dummy="exclude"
           class="flex-1 min-w-0"
         />
       </div>
@@ -778,6 +779,7 @@ defineExpose({
           <BaseHanbaitenDropdown
             v-model:value="state.filters.new_hanbaiten_id"
             :ja-id="filterJaId"
+            dummy="exclude"
             class="flex-1 min-w-0"
           />
         </div>

@@ -70,9 +70,8 @@ Wire each from AWS Secrets Manager via the ECS task definition.
 | Session ID | UUID v4 (cryptographically random, issued on login) |
 | Transport | HTTP-only Cookie (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`) |
 | Store | Redis — key `session:{session_id}`, TTL 24h |
-| Timeout (absolute) | 24h from login |
-| Timeout (sliding) | 24h from last request — extended via `POST /api/v1/auth/refresh` |
-| Re-login required | After 24h inactivity OR after password reset (all sessions destroyed) |
+| Timeout | **Absolute 24h from login.** Activity does NOT extend it (customer requirement 2026-08) |
+| Re-login required | 24h after login regardless of activity, OR after password reset (all sessions destroyed) |
 
 Session payload stored in Redis (JSON):
 ```json
@@ -117,7 +116,7 @@ app.use(
     secret: config.get('SESSION_SECRET'),      // For cookie signature
     resave: false,
     saveUninitialized: false,
-    rolling: true,                             // Sliding expiration
+    rolling: false,                            // Absolute expiry — see Session Strategy
     cookie: {
       httpOnly: true,                          // JS cannot read cookie (XSS protection)
       secure: config.get('NODE_ENV') === 'production',
@@ -169,7 +168,7 @@ account_sessions:{account_id} (Redis Set)  →  { session_id_1, session_id_2, ..
 | POST | `/api/v1/auth/login` | Email + password → mfa_required + send OTP email (MFA case) OR create session + Set-Cookie (no-MFA case) |
 | POST | `/api/v1/auth/mfa/verify` | Verify OTP → create session + Set-Cookie `session_id` |
 | POST | `/api/v1/auth/mfa/resend` | Resend OTP email |
-| POST | `/api/v1/auth/refresh` | Validate cookie session, extend TTL to another 24h, return refreshed user |
+| POST | `/api/v1/auth/refresh` | Validate the cookie session and return the current user. Does **not** extend the deadline and does **not** re-issue the cookie |
 | POST | `/api/v1/auth/logout` | `DEL session:{session_id}` in Redis + expire the cookie (`Max-Age=0`) |
 
 ---
@@ -179,12 +178,14 @@ account_sessions:{account_id} (Redis Set)  →  { session_id_1, session_id_2, ..
 ### Flow
 
 ```
-1. User submits email → POST /api/v1/auth/forgot-password { "email": "user@example.com" }
-2. Server sends reset link with token to email (always 200, even if email not found — prevent enumeration)
+1. User submits login_id + email → POST /api/v1/auth/forgot-password { "login_id": "admin01", "email": "user@example.com" }
+2. Server looks up the account by (login_id AND email), sends reset link to email (always 200, even if the pair matches nothing — prevent enumeration)
 3. User clicks link → GET /reset-password?token=xxx (frontend page)
 4. User submits new password → POST /api/v1/auth/reset-password { "token": "xxx", "new_password": "..." }
 5. Server verifies token, updates password, invalidates all existing sessions
 ```
+
+> **Why both login_id AND email**: `m_account.email` is a 通知先メールアドレス and is **NOT unique** (※空文字許容, no UNIQUE index). Matching by email alone would `findOne` an arbitrary account among duplicates — resetting the wrong account and leaving the others unable to reset. `login_id` is the unique key, so the service narrows by the pair `where: { loginId, email, deletedAt: IsNull() }` to target exactly one account. A pair that matches nothing returns the same success body as a real one (no enumeration signal).
 
 ### Reset Token Rules
 - Random UUID token, stored as bcrypt hash in DB
@@ -199,7 +200,7 @@ account_sessions:{account_id} (Redis Set)  →  { session_id_1, session_id_2, ..
 
 | Method | URI | Purpose |
 | --- | --- | --- |
-| POST | `/api/v1/auth/forgot-password` | Send reset email (always 200) |
+| POST | `/api/v1/auth/forgot-password` | Look up by (login_id + email), send reset email (always 200) |
 | POST | `/api/v1/auth/reset-password` | Verify token + update password |
 
 ---
@@ -302,10 +303,12 @@ Some roles can only edit specific fields. Use field whitelist:
 
 ```ts
 const FIELD_RESTRICTIONS: Record<string, Record<string, string[]>> = {
+  // 顧客要件 2026-06-25 — JASTEM 委託者コード/名・農協番号/名の4項目を
+  // CHUOKAI / JA_HONTEN の編集可能項目へ追加（create-ja.dto.ts 参照）。
   ja: {
     NICHINO_ADMIN: ['*'],
-    CHUOKAI: ['yubinNo', 'address', 'tel', 'fax', 'email', 'tantoBusho', 'tantoName', 'zeiKubun', 'biko'],
-    JA_HONTEN: ['yubinNo', 'address', 'tel', 'fax', 'email', 'tantoBusho', 'tantoName', 'zeiKubun', 'biko'],
+    CHUOKAI: ['yubinNo', 'address', 'tel', 'fax', 'email', 'tantoBusho', 'tantoName', 'zeiKubun', 'jastem_itakusha_code', 'jastem_itakusha_name', 'jastem_ja_code', 'jastem_ja_name', 'biko'],
+    JA_HONTEN: ['yubinNo', 'address', 'tel', 'fax', 'email', 'tantoBusho', 'tantoName', 'zeiKubun', 'jastem_itakusha_code', 'jastem_itakusha_name', 'jastem_ja_code', 'jastem_ja_name', 'biko'],
   },
   shiten: {
     // Customer policy 2026-05 — every role with `shiten.update` may
@@ -600,7 +603,7 @@ npm audit --audit-level=high
 ## Checklist
 
 - [ ] Secrets from AWS Secrets Manager (ConfigService) — never hardcode
-- [ ] Auth: HTTP-only Cookie session (Redis store), cookie flags `HttpOnly`+`Secure`+`SameSite=Strict`, 24h TTL (sliding)
+- [ ] Auth: HTTP-only Cookie session (Redis store), cookie flags `HttpOnly`+`Secure`+`SameSite=Strict`, absolute 24h TTL
 - [ ] Sessions invalidated on password reset (`DEL session:{sid}` for all account sessions)
 - [ ] Password: bcrypt 10 rounds
 - [ ] All endpoints have `SessionAuthGuard` + `PermissionsGuard` with `@Permissions('model.action')`

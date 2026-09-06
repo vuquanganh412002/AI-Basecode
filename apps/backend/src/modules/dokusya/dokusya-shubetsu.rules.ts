@@ -75,6 +75,52 @@ export function isBoth(shubetsu: number | null | undefined): boolean {
   return Number(shubetsu) === DokusyaShubetsu.BOTH;
 }
 
+/** 配達先7項目（住所4 + 氏名4のうち実装上は住所3+氏名4の7列）。 */
+const HAITATSU_DELIVERY_FIELDS = [
+  'haitatsu_yubin_no',
+  'haitatsu_todofuken_code',
+  'haitatsu_shikuchoson',
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+] as const;
+
+/**
+ * 配達先7項目のいずれかに値があるか。Excel取込テンプレートには per-row の
+ * 「配達先＝購読者住所と同じか」flag が明示されない行があるため、この結果から
+ * `haitatsu_same_flg` を推論するのに使う（{@link resolveEffectiveHaitatsuSameFlg}）。
+ * `selectedColumns` 指定時（UPDATE）は選択列のみ判定 — 未選択＝未書込みの
+ * 配達先列の誤検知を防ぐ。
+ */
+export function hasHaitatsuDeliveryData(
+  row: Record<string, unknown>,
+  selectedColumns?: string[],
+): boolean {
+  const selected = selectedColumns ? new Set(selectedColumns) : null;
+  return HAITATSU_DELIVERY_FIELDS.some((field) => {
+    if (selected && !selected.has(field)) return false;
+    const value = row[field];
+    if (typeof value !== 'string' && typeof value !== 'number') return false;
+    return String(value).trim() !== '';
+  });
+}
+
+/**
+ * Excel取込行の実効 `haitatsu_same_flg`（顧客要件 2026-06: 列で明示指定が
+ * あればそれを採用、無ければ配達先入力の有無から推論）。書込み層
+ * `dokusya-import.service.ts` の `applyImportRow` と同一ロジック — 検証層
+ * (`dokusya-import-validator.service.ts`)の配達先氏名 required 判定もこれで
+ * 揃え、書込み時の判定とズレないようにする。
+ */
+export function resolveEffectiveHaitatsuSameFlg(
+  row: { haitatsu_same_flg?: boolean } & Record<string, unknown>,
+  selectedColumns?: string[],
+): boolean {
+  if (row.haitatsu_same_flg !== undefined) return Boolean(row.haitatsu_same_flg);
+  return !hasHaitatsuDeliveryData(row, selectedColumns);
+}
+
 /** 電子版(2) かつ クレジットカード(6)。読取専用。 */
 export function isDigitalCreditCard(
   shubetsu: number | null | undefined,

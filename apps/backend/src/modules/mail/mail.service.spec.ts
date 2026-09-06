@@ -310,6 +310,53 @@ describe('MailService', () => {
     });
   });
 
+  describe('sendFileUploadNotification', () => {
+    it('should delegate to provider.sendMail with the rendered upload-notification subject/text', async () => {
+      const service = new MailService(
+        buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
+      );
+      service.onModuleInit();
+
+      await service.sendFileUploadNotification('sub1@example.com', {
+        jaName: 'JA東京中央',
+        fileName: 'sample.xlsx',
+        uploadDatetime: new Date('2026-08-22T03:00:00.000Z'),
+        uploaderLoginId: 'ja_honten001',
+        uploaderAccountName: '花子',
+        downloadUrl: 'https://example.com/file-download?file_name=sample.xlsx',
+      });
+
+      expect(smtpSendMail).toHaveBeenCalledTimes(1);
+      const arg = smtpSendMail.mock.calls[0][0];
+      expect(arg.to).toBe('sub1@example.com');
+      expect(arg.subject).toBe(
+        '【クラウド版購読者管理システム】【ja_honten001 花子】ファイルアップロードのお知らせ',
+      );
+      expect(arg.text).toContain('JA東京中央');
+      expect(arg.text).toContain('sample.xlsx');
+      expect(arg.text).toContain('https://example.com/file-download?file_name=sample.xlsx');
+    });
+
+    it('should propagate provider errors so the caller (worker) can log/retry', async () => {
+      const service = new MailService(
+        buildConfig({ 'mail.provider': 'smtp', 'mail.from': 'a@b.com' }),
+      );
+      service.onModuleInit();
+      smtpSendMail.mockRejectedValueOnce(new Error('smtp down'));
+
+      await expect(
+        service.sendFileUploadNotification('sub1@example.com', {
+          jaName: 'JA東京中央',
+          fileName: 'sample.xlsx',
+          uploadDatetime: new Date('2026-08-22T03:00:00.000Z'),
+          uploaderLoginId: 'ja_honten001',
+          uploaderAccountName: '花子',
+          downloadUrl: '',
+        }),
+      ).rejects.toThrow('smtp down');
+    });
+  });
+
   describe('sendNotification', () => {
     it('should send html body with the subject passed through as-is (no prefix)', async () => {
       // 顧客要件2026-07: システム名プレフィックスは付与せず、件名は呼び出し側が

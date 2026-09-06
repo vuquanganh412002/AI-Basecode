@@ -322,17 +322,19 @@ describe('ImportDokusyaRowDto (ACSMS-API-016-002 §リクエストパラメー�
     expect(errors).toHaveLength(0);
   });
 
-  describe('string max-length (#9 kumiaiin_code max 20)', () => {
-    it('should fail when kumiaiin_code exceeds 20 characters', async () => {
+  // 不具合修正2026-08: 20→10文字へ変更（UI(DokusyaFormView.vue の
+  // :maxlength="10") / screen-design.md(ACSMS-SCR-011) と揃える）。
+  describe('string max-length (#9 kumiaiin_code max 10・不具合修正2026-08)', () => {
+    it('should fail when kumiaiin_code exceeds 10 characters', async () => {
       const errors = await validateRow(
-        buildImportRow({ kumiaiin_code: 'X'.repeat(21) }),
+        buildImportRow({ kumiaiin_code: 'X'.repeat(11) }),
       );
       expect(errors.some((e) => e.property === 'kumiaiin_code')).toBe(true);
     });
 
-    it('should pass when kumiaiin_code is exactly 20 characters', async () => {
+    it('should pass when kumiaiin_code is exactly 10 characters', async () => {
       const errors = await validateRow(
-        buildImportRow({ kumiaiin_code: 'X'.repeat(20) }),
+        buildImportRow({ kumiaiin_code: 'X'.repeat(10) }),
       );
       expect(errors.find((e) => e.property === 'kumiaiin_code')).toBeUndefined();
     });
@@ -381,6 +383,53 @@ describe('ImportDokusyaRowDto (ACSMS-API-016-002 §リクエストパラメー�
       );
       expect(errors.find((e) => e.property === field)).toBeUndefined();
     });
+  });
+
+  // 不具合修正 2026-08: 氏名（漢字）4項目は UI(DokusyaFormView.vue の KANJI_RE)
+  // と同じく漢字・ひらがな・カタカナ・アルファベット・数字を許容し、記号は
+  // 拒否する（従来は max-length のみで書式チェックが無かった）。
+  describe('氏名（漢字）4項目 — KANJI_NAME_RE 書式チェック（不具合修正2026-08）', () => {
+    const KANJI_FIELDS: Array<[string, string]> = [
+      ['shimei_sei', '氏名（姓）'],
+      ['shimei_mei', '氏名（名）'],
+      ['haitatsu_shimei_sei', '配達先氏名（姓）'],
+      ['haitatsu_shimei_mei', '配達先氏名（名）'],
+    ];
+
+    it.each(KANJI_FIELDS)(
+      'should fail when %s contains a symbol',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: '太郎！' }),
+        );
+        expect(errors.some((e) => e.property === field)).toBe(true);
+      },
+    );
+
+    it.each(KANJI_FIELDS)('should pass when %s is kanji', async (field) => {
+      const errors = await validateRow(buildImportRow({ [field]: '山田' }));
+      expect(errors.find((e) => e.property === field)).toBeUndefined();
+    });
+
+    it.each(KANJI_FIELDS)(
+      'should pass when %s is full-width katakana',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'ヤマダ' }),
+        );
+        expect(errors.find((e) => e.property === field)).toBeUndefined();
+      },
+    );
+
+    it.each(KANJI_FIELDS)(
+      'should pass when %s is half-width alphabet',
+      async (field) => {
+        const errors = await validateRow(
+          buildImportRow({ [field]: 'Yamada' }),
+        );
+        expect(errors.find((e) => e.property === field)).toBeUndefined();
+      },
+    );
   });
 
   // 不具合修正 2026-08: 氏名かな4項目は全角ひらがなのみ許容し、半角文字・

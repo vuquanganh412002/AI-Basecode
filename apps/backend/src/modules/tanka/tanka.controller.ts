@@ -25,6 +25,7 @@ import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { SuccessMessageDto } from '@/common/dto/responses.dto';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 
 import { CreateTankaDto } from './dto/create-tanka.dto';
 import { TankaDropdownQueryDto } from './dto/tanka-dropdown-query.dto';
@@ -109,7 +110,7 @@ export class TankaController {
     @Req() req: Request & { user: SessionPayload },
   ): Promise<{ data: TankaResponseDto; message: string }> {
     const data = await this.service.create(dto, req.user, req);
-    return { data, message: '登録しました。' };
+    return { data, message: SuccessMessage.CREATED };
   }
 
   // ─── ACSMS-API-003-003 — PUT /api/v1/tanka/:id ──────────────────────────
@@ -123,6 +124,6 @@ export class TankaController {
     @Req() req: Request & { user: SessionPayload },
   ): Promise<{ data: TankaResponseDto; message: string }> {
     const data = await this.service.update(tankaId, dto, req.user, req);
-    return { data, message: '更新しました。' };
+    return { data, message: SuccessMessage.UPDATED };
   }
 }

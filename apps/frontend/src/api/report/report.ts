@@ -273,6 +273,26 @@ export async function exportZougenHanbaiten(
   };
 }
 
+/**
+ * POST /api/v1/report/zougen-hanbaiten/export-excel — ACSMS-API-028-003.
+ * レポートプレビューと同じ内容を実際の帳票に近い体裁でExcel出力する。PDF出力
+ * （exportZougenHanbaiten）とは別の読み取り専用出力。ファイル名解決・0件時の
+ * application/json 応答は PDF 版と同じ規約。
+ */
+export async function exportZougenHanbaitenExcel(
+  query: ZougenHanbaitenQuery,
+): Promise<ZougenHanbaitenExportResult> {
+  const res = await axiosInstance.post<Blob>(
+    '/api/v1/report/zougen-hanbaiten/export-excel',
+    query,
+    { responseType: 'blob' },
+  );
+  return {
+    blob: res.data,
+    filename: filenameFromDisposition(res.headers['content-disposition']),
+  };
+}
+
 // ─── ACSMS-SCR-029 — 増減通知（日本農業新聞）出力画面 ──────────────────
 
 /** 管理支店ごとの備考（出力時のみ。プレビューで直接入力）。 */
@@ -395,6 +415,23 @@ export async function exportZougenNichino(
 ): Promise<ExportZougenNichinoResult> {
   const res = await axiosInstance.post<{ data: ExportZougenNichinoResult }>(
     '/api/v1/report/zougen-nichino/export',
+    query,
+  );
+  return res.data.data;
+}
+
+/**
+ * POST /api/v1/report/zougen-nichino/export-excel — ACSMS-API-029-003.
+ * レポートプレビューと同じ内容を実際の帳票に近い体裁でExcel出力する。PDF出力
+ * （exportZougenNichino）と同じくブラウザへは返さず、BE が S3 へ保存し日農担当者へ
+ * メール通知する。戻り値は JSON（成功 → file_name / recipient_count、対象0件 →
+ * reports:[]）で PDF 版と同一形状のため `ExportZougenNichinoResult` を再利用する。
+ */
+export async function exportZougenNichinoExcel(
+  query: ZougenNichinoQuery,
+): Promise<ExportZougenNichinoResult> {
+  const res = await axiosInstance.post<{ data: ExportZougenNichinoResult }>(
+    '/api/v1/report/zougen-nichino/export-excel',
     query,
   );
   return res.data.data;

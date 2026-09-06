@@ -283,15 +283,15 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     const headerText = wrapper.findAll('th').map((th) => th.text());
     // 顧客要件 2026-06 検索結果テーブル — ID + 15 列 + 操作
     // (ID added first; 支店 / 連絡先２ removed; 手続種類 / 購読種別 / 配達先氏名 /
-    //  配送先連絡先1 / 支払方法 added).
+    //  配送先連絡先1 / 支払方法 added). 連絡先1/2 → TEL1/TEL2 renamed (顧客CR 2026-08-24).
     expect(headerText).toContain('ID');
     expect(headerText).toContain('管理支店');
     expect(headerText).toContain('組合員コード');
     expect(headerText).toContain('購読者名');
     expect(headerText).toContain('手続種類');
     expect(headerText).toContain('購読種別');
-    expect(headerText).toContain('連絡先1');
-    expect(headerText).toContain('配送先連絡先1');
+    expect(headerText).toContain('TEL1');
+    expect(headerText).toContain('配送先TEL1');
     expect(headerText).toContain('配達先氏名');
     expect(headerText).toContain('配達先郵便');
     expect(headerText).toContain('配達先住所');
@@ -304,6 +304,7 @@ describe('DokusyaListView — initial render (機能定義 1.x)', () => {
     // Removed columns must NOT appear as standalone table headers.
     expect(headerText).not.toContain('支店');
     expect(headerText).not.toContain('連絡先2');
+    expect(headerText).not.toContain('TEL2');
   });
 
   it('should render the 購読者一覧 section title when mounted (index.html row 690)', async () => {
@@ -508,6 +509,35 @@ describe('DokusyaListView — search submission (機能定義 2.x)', () => {
       | undefined;
     expect(arg).toBeDefined();
     expect('active_tanka_flg' in (arg ?? {})).toBe(false);
+  });
+
+  // ─── 購読者層分類（顧客CR 2026-08-24）───────────────────────────────────
+  it('should send dokusyaso_bunrui as a string code when selected and submitted', async () => {
+    const { wrapper } = await renderView();
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) vm.state.filters.dokusyaso_bunrui = '1';
+    await flushPromises();
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ dokusyaso_bunrui: '1' });
+  });
+
+  it('should NOT send dokusyaso_bunrui when unselected (default mount call)', async () => {
+    const { listDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(listDokusya).mockClear();
+    await renderView();
+    const arg = vi.mocked(listDokusya).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toBeDefined();
+    expect('dokusyaso_bunrui' in (arg ?? {})).toBe(false);
   });
 
   it('should call listDokusya with kumiaiin_code filter when the form is submitted', async () => {

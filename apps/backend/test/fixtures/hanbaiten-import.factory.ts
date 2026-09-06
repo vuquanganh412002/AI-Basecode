@@ -9,12 +9,13 @@
 //          dto/import-hanbaiten.dto.spec,
 //          test/integration/hanbaiten-import.integration.spec.
 
-/** 23-column physical-name list — exact order per api.md §テンプレートファイル仕様. */
+/** 24-column physical-name list — exact order per api.md §テンプレートファイル仕様. */
 export const HANBAITEN_IMPORT_COLUMNS = [
   'hanbaiten_code',
   'hanbaiten_name',
   'hanbaiten_name_kana',
   'torihikisaki_no',
+  'todofuken_code',
   'yubin_no',
   'address',
   'tel',
@@ -45,6 +46,7 @@ export function buildImportRow(
     hanbaiten_name: '販売店A',
     hanbaiten_name_kana: 'ﾊﾝﾊﾞｲﾃﾝ',
     torihikisaki_no: 'T1234567890123',
+    todofuken_code: '13',
     yubin_no: '1300001',
     address: '東京都千代田区1-1-1',
     tel: '0312345678',

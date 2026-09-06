@@ -489,3 +489,36 @@ describe('BaseJaDropdown — labelFormat / searchField props', () => {
     vi.useRealTimers();
   });
 });
+
+describe('BaseJaDropdown — roleId prop (ACSMS-SCR-025 role cascade)', () => {
+  it('should NOT send role_id by default', async () => {
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    await mountDropdown();
+    await flushPromises();
+    const params = vi.mocked(getJaDropdown).mock.calls[0]?.[0] ?? {};
+    expect(params).not.toHaveProperty('role_id');
+  });
+
+  it('should send role_id when roleId prop is set', async () => {
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    await mountDropdown({ roleId: 3 });
+    await flushPromises();
+    expect(getJaDropdown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ role_id: 3 }),
+    );
+  });
+
+  it('should re-fetch when roleId changes together with todofukenCode (parent cascade)', async () => {
+    const { getJaDropdown } = await import('@/api/ja/ja');
+    const wrapper = await mountDropdown({ roleId: 4, todofukenCode: '13' });
+    await flushPromises();
+    vi.mocked(getJaDropdown).mockClear();
+
+    await wrapper.setProps({ roleId: 3, todofukenCode: '27' });
+    await flushPromises();
+
+    expect(getJaDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ role_id: 3, todofuken_code: '27' }),
+    );
+  });
+});

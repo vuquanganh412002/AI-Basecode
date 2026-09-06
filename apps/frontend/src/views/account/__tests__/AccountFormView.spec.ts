@@ -380,6 +380,23 @@ describe('AccountFormView — role-based dropdown visibility (機能定義 4.x)'
     await flushPromises();
     expect(shitenSelect(wrapper)?.props('disabled')).toBe(false);
   });
+
+  it('should exclude 金融機関支店(kinyu_shiten_flg=true) when fetching the 所属支店 dropdown (顧客要件2026-08)', async () => {
+    // 所属支店は口座振替の金融機関支店ピッカーではなく通常の支店選択欄のため、
+    // 金融機関支店を除外する（KozaFurikaeExportView.vue と同じ絞り込み方式）。
+    const { wrapper } = await renderView();
+    const { getShitenDropdown } = await import('@/api/shiten/shiten');
+    vi.mocked(getShitenDropdown).mockClear();
+
+    const vm = wrapper.vm as any;
+    vm.formState.role_id = 5;
+    vm.formState.kanri_shiten_id = 20;
+    await flushPromises();
+
+    expect(getShitenDropdown).toHaveBeenCalledWith(
+      expect.objectContaining({ kinyu_shiten_flg: false }),
+    );
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────

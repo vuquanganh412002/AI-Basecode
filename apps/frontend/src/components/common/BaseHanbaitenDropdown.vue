@@ -22,6 +22,13 @@ interface Props {
   value?: number | null;
   /** 明示的な JA フィルタ（NICHINO_* 代行入力）。スコープ付きロールは session 優先。 */
   jaId?: number | null;
+  /**
+   * ダミー販売店（電子版単独の受け皿、`HANBAITEN_DUMMY_CODE`）の絞り込み。
+   * 省略時は絞らない（従来どおり全件）。紙版の配達実績を前提にした画面
+   * （例: ACSMS-SCR-015 統廃合販売店読者移行画面）では `'exclude'` を渡す —
+   * ダミーは配達先を持たない受け皿であり、置換元/置換先どちらにもなり得ない。
+   */
+  dummy?: 'only' | 'exclude';
   disabled?: boolean;
   placeholder?: string;
   allowClear?: boolean;
@@ -60,6 +67,7 @@ const {
   buildExtraParams: () => {
     const extra: Partial<HanbaitenDropdownQuery> = {};
     if (props.jaId != null) extra.ja_id = props.jaId;
+    if (props.dummy != null) extra.dummy = props.dummy;
     return extra;
   },
   resetTriggers: [jaIdRef],

@@ -293,3 +293,350 @@ describe('dokusya API wrapper — approve/reject body (#56524)', () => {
     expect(put).toHaveBeenNthCalledWith(2, '/api/v1/dokusya/100/reject', undefined);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// registerTankaDokusya — denshi_shonin_status=NULL の単価初回登録（2026-08 追加）
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — registerTankaDokusya (ACSMS-API-011-007)', () => {
+  it('PUTs tanka_id to /register-tanka', async () => {
+    const { registerTankaDokusya } = await import('@/api/dokusya/dokusya');
+    put.mockResolvedValue({ data: { data: {}, message: '登録しました。' } });
+
+    await registerTankaDokusya(100, { tanka_id: 5 });
+
+    expect(put).toHaveBeenCalledWith('/api/v1/dokusya/100/register-tanka', {
+      tanka_id: 5,
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// getDokusya — GET /api/v1/dokusya/:id (ACSMS-API-011-001)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — getDokusya (ACSMS-API-011-001)', () => {
+  it('GETs /api/v1/dokusya/:id and returns the response body envelope', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    const envelope = { data: { dokusya_id: 100 } };
+    get.mockResolvedValue({ data: envelope });
+
+    const out = await getDokusya(100);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/100');
+    expect(out).toEqual(envelope);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// getDokusyaEffectiveAt — GET /api/v1/dokusya/:id/effective-at (ACSMS-API-011-004)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — getDokusyaEffectiveAt (ACSMS-API-011-004)', () => {
+  it('GETs /api/v1/dokusya/:id/effective-at with the joho query param', async () => {
+    const { getDokusyaEffectiveAt } = await import('@/api/dokusya/dokusya');
+    const envelope = { data: { dokusya_id: 100 } };
+    get.mockResolvedValue({ data: envelope });
+
+    const out = await getDokusyaEffectiveAt(100, '2026-08-01');
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/100/effective-at', {
+      params: { joho: '2026-08-01' },
+    });
+    expect(out).toEqual(envelope);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// createDokusya — POST /api/v1/dokusya (ACSMS-API-011-002)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — createDokusya (ACSMS-API-011-002)', () => {
+  it('POSTs the body to /api/v1/dokusya and returns the response body', async () => {
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+    const body = {
+      dokusya_shubetsu: 1,
+      tetsuzuki_shurui: 1,
+      shimei_sei: '山田',
+      shimei_mei: '太郎',
+      shimei_kana_sei: 'やまだ',
+      shimei_kana_mei: 'たろう',
+      dokusya_busu: 1,
+      yubin_no: '1000001',
+      todofuken_code: '13',
+      shikuchoson: '千代田区',
+      chome_banchi: '1-1',
+      renrakusaki_1: '0312345678',
+      haitatsu_same_flg: true,
+      hanbaiten_id: 501,
+      tanka_id: 5,
+      shiharai_hoho: 1,
+      dokusya_kaishi_date: '2026-09-01',
+    };
+    post.mockResolvedValue({ data: { data: { dokusya_id: 1001 }, message: '登録しました。' } });
+
+    const out = await createDokusya(body);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/dokusya', body);
+    expect(out).toEqual({ data: { dokusya_id: 1001 }, message: '登録しました。' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// updateDokusya — PUT /api/v1/dokusya/:id (ACSMS-API-011-003)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — updateDokusya (ACSMS-API-011-003)', () => {
+  it('PUTs the body to /api/v1/dokusya/:id and returns the response body', async () => {
+    const { updateDokusya } = await import('@/api/dokusya/dokusya');
+    const body = { shimei_sei: '田中' } as unknown as Parameters<
+      typeof updateDokusya
+    >[1];
+    put.mockResolvedValue({ data: { data: { dokusya_id: 100 }, message: '更新しました。' } });
+
+    const out = await updateDokusya(100, body);
+
+    expect(put).toHaveBeenCalledWith('/api/v1/dokusya/100', body);
+    expect(out).toEqual({ data: { dokusya_id: 100 }, message: '更新しました。' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// stopDokusya — POST /api/v1/dokusya/:id/stop (ACSMS-API-014-004)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — stopDokusya (ACSMS-API-014-004)', () => {
+  it('POSTs dokusya_chushi_date to /api/v1/dokusya/:id/stop', async () => {
+    const { stopDokusya } = await import('@/api/dokusya/dokusya');
+    post.mockResolvedValue({ data: { data: {}, message: '登録しました。' } });
+
+    await stopDokusya(100, { dokusya_chushi_date: '2026-09-30' });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/dokusya/100/stop', {
+      dokusya_chushi_date: '2026-09-30',
+    });
+  });
+
+  it('accepts an empty string to cancel an existing 解約予約 (電子版のみ・顧客要件2026-08)', async () => {
+    const { stopDokusya } = await import('@/api/dokusya/dokusya');
+    post.mockResolvedValue({ data: { data: {}, message: '更新しました。' } });
+
+    await stopDokusya(100, { dokusya_chushi_date: '' });
+
+    expect(post).toHaveBeenCalledWith('/api/v1/dokusya/100/stop', {
+      dokusya_chushi_date: '',
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// getDokusyaHistory — GET /api/v1/dokusya/:id/history (ACSMS-API-011-006)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — getDokusyaHistory (ACSMS-API-011-006)', () => {
+  it('GETs /api/v1/dokusya/:id/history and returns the response body', async () => {
+    const { getDokusyaHistory } = await import('@/api/dokusya/dokusya');
+    const envelope = { data: [] };
+    get.mockResolvedValue({ data: envelope });
+
+    const out = await getDokusyaHistory(100);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/100/history');
+    expect(out).toEqual(envelope);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// getDokusyaRirekiList — GET /api/v1/dokusya/:id/rireki (ACSMS-API-013-001)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — getDokusyaRirekiList (ACSMS-API-013-001)', () => {
+  it('GETs /api/v1/dokusya/:id/rireki and forwards paging/sort params', async () => {
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    const envelope = {
+      data: [],
+      meta: { total: 0, page: 1, per_page: 20, total_pages: 0 },
+    };
+    get.mockResolvedValue({ data: envelope });
+
+    const params = { page: 2, per_page: 50, sort_by: 'rireki_no', sort_order: 'desc' as const };
+    const out = await getDokusyaRirekiList(100, params);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/100/rireki', { params });
+    expect(out).toEqual(envelope);
+  });
+
+  it('defaults params to {} when omitted', async () => {
+    const { getDokusyaRirekiList } = await import('@/api/dokusya/dokusya');
+    get.mockResolvedValue({
+      data: { data: [], meta: { total: 0, page: 1, per_page: 20, total_pages: 0 } },
+    });
+
+    await getDokusyaRirekiList(100);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/100/rireki', { params: {} });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// torikeshiDokusyaRireki — POST /api/v1/dokusya/:id/rireki/:rireki_id/torikeshi (ACSMS-API-013-002)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — torikeshiDokusyaRireki (ACSMS-API-013-002)', () => {
+  it('POSTs the reason to the torikeshi endpoint and returns the message', async () => {
+    const { torikeshiDokusyaRireki } = await import('@/api/dokusya/dokusya');
+    post.mockResolvedValue({ data: { message: '取消しました。' } });
+
+    const out = await torikeshiDokusyaRireki(100, 5001, '入力誤り');
+
+    expect(post).toHaveBeenCalledWith(
+      '/api/v1/dokusya/100/rireki/5001/torikeshi',
+      { reason: '入力誤り' },
+    );
+    expect(out).toEqual({ message: '取消しました。' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// searchDokusyaForReplace / replaceDokusyaHanbaiten — ACSMS-SCR-015
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — searchDokusyaForReplace (ACSMS-API-015-001)', () => {
+  it('GETs the replace-hanbaiten search endpoint with the given params', async () => {
+    const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
+    const envelope = {
+      data: [],
+      meta: { total: 0, page: 1, per_page: 20, total_pages: 0 },
+    };
+    get.mockResolvedValue({ data: envelope });
+
+    const params = {
+      new_hanbaiten_id: 502,
+      joho_henko_tekiyo_date: '2026-09-01',
+      dokusya_shubetsu: 1,
+    };
+    const out = await searchDokusyaForReplace(params);
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/replace-hanbaiten/search', {
+      params,
+    });
+    expect(out).toEqual(envelope);
+  });
+});
+
+describe('dokusya API wrapper — replaceDokusyaHanbaiten (ACSMS-API-015-002)', () => {
+  it('POSTs the replacement body and returns the result envelope', async () => {
+    const { replaceDokusyaHanbaiten } = await import('@/api/dokusya/dokusya');
+    const body = {
+      dokusya_ids: [1001, 1002],
+      new_hanbaiten_id: 502,
+      joho_henko_tekiyo_date: '2026-09-01',
+      dokusya_shubetsu: 1,
+    };
+    const result = {
+      data: {
+        total_count: 2,
+        replaced_count: 2,
+        rireki_count: 2,
+        new_hanbaiten_id: 502,
+        applied_at: '2026-08-22T00:00:00.000Z',
+      },
+      message: '置換しました。',
+    };
+    post.mockResolvedValue({ data: result });
+
+    const out = await replaceDokusyaHanbaiten(body);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/dokusya/replace-hanbaiten', body);
+    expect(out).toEqual(result);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// downloadDokusyaImportTemplate / importDokusyaExcel — ACSMS-SCR-016
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — downloadDokusyaImportTemplate (ACSMS-API-016-001)', () => {
+  it('GETs the import template with responseType: "blob" and returns the Blob', async () => {
+    const { downloadDokusyaImportTemplate } = await import('@/api/dokusya/dokusya');
+    const blob = new Blob(['xlsx-bytes'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    get.mockResolvedValue({ data: blob });
+
+    const out = await downloadDokusyaImportTemplate();
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/import/template', {
+      responseType: 'blob',
+    });
+    expect(out).toBe(blob);
+  });
+});
+
+describe('dokusya API wrapper — importDokusyaExcel (ACSMS-API-016-002)', () => {
+  it('POSTs the import body and returns the result envelope', async () => {
+    const { importDokusyaExcel } = await import('@/api/dokusya/dokusya');
+    const body = {
+      import_mode: 'NEW' as const,
+      dokusya_shubetsu: 1,
+      selected_columns: ['kumiaiin_code'],
+      rows: [{ kumiaiin_code: 'K000001' }],
+    };
+    const result = {
+      data: {
+        import_mode: 'NEW' as const,
+        total_rows: 1,
+        created_count: 1,
+        updated_count: 0,
+        cancelled_count: 0,
+        skipped_count: 0,
+        failed_count: 0,
+        rireki_count: 1,
+        imported_at: '2026-08-22T00:00:00.000Z',
+      },
+      message: '登録しました。',
+    };
+    post.mockResolvedValue({ data: result });
+
+    const out = await importDokusyaExcel(body);
+
+    expect(post).toHaveBeenCalledWith('/api/v1/dokusya/import', body);
+    expect(out).toEqual(result);
+  });
+
+  it('surfaces row_errors on a partial-success 電子版 import (1行=1tx)', async () => {
+    const { importDokusyaExcel } = await import('@/api/dokusya/dokusya');
+    const result = {
+      data: {
+        import_mode: 'NEW' as const,
+        total_rows: 2,
+        created_count: 1,
+        updated_count: 0,
+        cancelled_count: 0,
+        skipped_count: 0,
+        failed_count: 1,
+        rireki_count: 1,
+        imported_at: '2026-08-22T00:00:00.000Z',
+      },
+      message: '1件成功、1件失敗しました。',
+      row_errors: [{ row: 2, message: 'メールアドレスが重複しています。' }],
+    };
+    post.mockResolvedValue({ data: result });
+
+    const out = await importDokusyaExcel({
+      import_mode: 'NEW',
+      dokusya_shubetsu: 2,
+      selected_columns: ['email'],
+      rows: [{ email: 'a@example.com' }, { email: 'b@example.com' }],
+    });
+
+    expect(out.row_errors).toEqual([
+      { row: 2, message: 'メールアドレスが重複しています。' },
+    ]);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// getPendingApprovalCount — GET /api/v1/dokusya/pending-approval/count (ACSMS-API-010-002)
+// ═══════════════════════════════════════════════════════════════════════
+describe('dokusya API wrapper — getPendingApprovalCount (ACSMS-API-010-002)', () => {
+  it('GETs the pending-approval count endpoint and returns the response body', async () => {
+    const { getPendingApprovalCount } = await import('@/api/dokusya/dokusya');
+    const envelope = { data: { count: 3, ja_id: 1 } };
+    get.mockResolvedValue({ data: envelope });
+
+    const out = await getPendingApprovalCount();
+
+    expect(get).toHaveBeenCalledWith('/api/v1/dokusya/pending-approval/count');
+    expect(out).toEqual(envelope);
+  });
+});

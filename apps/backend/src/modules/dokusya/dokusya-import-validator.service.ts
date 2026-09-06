@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common';
 
 import { ValidationException } from '@/common/exceptions/common.exceptions';
 import {
+  DOKUSYA_BUSU_MIN_MESSAGE,
+  DOKUSYA_KAISHI_DATE_FUTURE_MESSAGE,
+  DOKUSYA_CHUSHI_DATE_CURRENT_MONTH_MESSAGE,
+} from '@/common/constants/dokusya-validation-message.constant';
+import {
   assertBranchScopeViolation,
   assertShitenScopeViolation,
 } from '@/common/utils/data-scope';
@@ -9,7 +14,7 @@ import { normalizeForCache } from '@/common/utils/m-code-validation';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { DokusyaShubetsu } from '@/common/enums';
-import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
+import { HANBAITEN_DUMMY_CODE, HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE } from '@/common/constants/hanbaiten-dummy.constant';
 import { ErrorMessage } from '@/common/constants/error-codes.constant';
 import {
   DOKUSYASO_BUNRUI_INVALID_MSG,
@@ -39,6 +44,7 @@ import {
   collectTodayModeReportViolations,
   collectReservedSameDateViolation,
   computeChangedReportFields,
+  resolveEffectiveHaitatsuSameFlg,
   SHUBETSU_MSG,
 } from './dokusya-shubetsu.rules';
 
@@ -72,6 +78,22 @@ interface ImportRowLookups {
   hanbaitenClosedCodeSet: Set<string>;
   kanriShitenCodeSet: Set<string>;
   shitenCodeSet: Set<string>;
+  /**
+   * 管理支店コード → その管理支店自体の取扱いフラグ（m_kanri_shiten.paper_flg /
+   * denshi_flg）。行の 購読種別 をその管理支店が実際に取り扱っているかの
+   * ゲート用（不具合修正2026-08）。アカウントの取扱いフラグ(m_account)とは別物。
+   */
+  kanriShitenFlagsByCode: Map<string, { paperFlg: boolean; denshiFlg: boolean }>;
+  /** 支店コード → 所属する管理支店コード（m_shiten.kanri_shiten_id を経由。未設定は null）。 */
+  shitenKanriShitenCodeByCode: Map<string, string | null>;
+  /**
+   * ログイン中アカウントが管理支店に固定されている場合の自管理支店コード
+   * （session.kanri_shiten_id を m_kanri_shiten から解決）。未固定（CHUOKAI/
+   * JA_HONTEN/NICHINO_*）は null。
+   */
+  ownKanriShitenCode: string | null;
+  /** 同様に session.shiten_id を解決した自支店コード。未固定は null。 */
+  ownShitenCode: string | null;
   /**
    * 既存の電子版(2)・併読(3) レコードの email → dokusya_id 群（JA 全件）。
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
@@ -138,6 +160,15 @@ function fieldValidationError(
  */
 const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
   'kanri_shiten_code',
+  // 購読者氏名・氏名かな4項目 — UI(SCR-011 DokusyaFormView)と同じく常時必須
+  // （不具合修正2026-08）。FE 側 REQUIRED_COLUMNS_NEW（dokusya-import.ts）は
+  // 既にこの4項目を含み「BE の IMPORT_NEW_REQUIRED_COLUMNS と対で保つこと」と
+  // 明記していたが、BE 側だけこの4項目が抜けていた（列選択は強制チェック済み
+  // でも空欄セルでの取込は素通りしていた）。
+  'shimei_sei',
+  'shimei_mei',
+  'shimei_kana_sei',
+  'shimei_kana_mei',
   'dokusya_busu',
   'tanka_code',
   'yubin_no',
@@ -158,16 +189,40 @@ const IMPORT_NEW_REQUIRED_COLUMNS: readonly string[] = [
  */
 const NEW_REQUIRED_LABELS: Readonly<Record<string, string>> = {
   kanri_shiten_code: '管理支店',
+  shimei_sei: '購読者氏名_氏',
+  shimei_mei: '購読者氏名_名',
+  shimei_kana_sei: '購読者かな_氏',
+  shimei_kana_mei: '購読者かな_名',
   dokusya_busu: '購読部数',
   tanka_code: '新聞単価',
   yubin_no: '郵便番号',
   todofuken_code: '都道府県',
   shikuchoson: '市町村郡',
   chome_banchi: '丁目番地',
-  renrakusaki_1: '連絡先１',
+  renrakusaki_1: 'TEL1',
   hanbaiten_code: '販売店コード',
   shiharai_hoho: '支払方法',
   dokusya_kaishi_date: '購読開始日',
+};
+
+/**
+ * 配達先氏名4項目 — 常時必須ではなく、UI(DokusyaFormView.vue の
+ * `haitatsuRequired = !haitatsu_same_flg && !isDigitalOnly`)と同じ条件
+ * （紙版/併読 かつ 配達先≠購読者情報）のときだけ必須にする（不具合修正
+ * 2026-08）。判定は {@link resolveEffectiveHaitatsuSameFlg} で書込み層と揃える。
+ */
+const HAITATSU_NAME_REQUIRED_COLUMNS: readonly string[] = [
+  'haitatsu_shimei_sei',
+  'haitatsu_shimei_mei',
+  'haitatsu_shimei_kana_sei',
+  'haitatsu_shimei_kana_mei',
+] as const;
+
+const HAITATSU_NAME_LABELS: Readonly<Record<string, string>> = {
+  haitatsu_shimei_sei: '配達先苗字（漢字）',
+  haitatsu_shimei_mei: '配達先名前（漢字）',
+  haitatsu_shimei_kana_sei: '配達先苗字（かな）',
+  haitatsu_shimei_kana_mei: '配達先名前（かな）',
 };
 
 /** ACSMS-SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
@@ -354,7 +409,7 @@ export class DokusyaImportValidator {
     if (chushi.slice(0, 7) < todayIsoJst().slice(0, 7)) {
       throw this.payloadDateError(
         'dokusya_chushi_date',
-        '購読中止日は当月以降の月を選択してください。',
+        DOKUSYA_CHUSHI_DATE_CURRENT_MONTH_MESSAGE,
       );
     }
   }
@@ -390,7 +445,8 @@ export class DokusyaImportValidator {
       this.validateImportRowRules(row, rowNo, dto, errors);
       this.validateImportRowShubetsuMatch(row, rowNo, dto, lookups, errors);
       this.validateImportRowTekiyoDates(row, rowNo, dto, lookups, errors);
-      this.validateImportRowRefs(row, rowNo, lookups, errors);
+      this.validateImportRowRefs(row, rowNo, dto, lookups, errors);
+      this.validateImportRowKanriShitenScope(row, rowNo, dto, lookups, session, errors);
       this.validateImportRowEmail(
         row,
         rowNo,
@@ -442,6 +498,33 @@ export class DokusyaImportValidator {
       }
       // 組合員コードは JA 内で重複を許容する（同一コードの世帯員など）。
       // DB にも UNIQUE 制約は無いため、NEW 取込みで重複チェックは行わない。
+      this.validateImportRowHaitatsuNameRequired(rec, rowNo, dto, errors);
+    }
+  }
+
+  /**
+   * 配達先氏名4項目 — UI(DokusyaFormView.vue の `haitatsuRequired`)と同じ条件
+   * （紙版/併読 かつ 配達先≠購読者情報）でのみ必須にする（不具合修正2026-08）。
+   * NEW は配達先7列を全列書込みのため `resolveEffectiveHaitatsuSameFlg` に
+   * selectedColumns を渡さない（`applyImportRow` の NEW 分岐と同じ呼び分け）。
+   */
+  private validateImportRowHaitatsuNameRequired(
+    rec: Record<string, unknown>,
+    rowNo: number,
+    dto: ImportDokusyaDto,
+    errors: ImportRowError[],
+  ): void {
+    if (Number(dto.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL) return;
+    if (resolveEffectiveHaitatsuSameFlg(rec as { haitatsu_same_flg?: boolean } & Record<string, unknown>)) return;
+    for (const field of HAITATSU_NAME_REQUIRED_COLUMNS) {
+      const v = rec[field];
+      if (v === undefined || v === null || v === '') {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field,
+          message: `新規登録の場合、${HAITATSU_NAME_LABELS[field] ?? field}は必須です。`,
+        });
+      }
     }
   }
 
@@ -476,7 +559,7 @@ export class DokusyaImportValidator {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'dokusya_busu',
-        message: '購読部数は1以上で入力してください。',
+        message: DOKUSYA_BUSU_MIN_MESSAGE,
       });
     }
     // 電子版は購読部数=1固定（顧客要件・UI と統一。従来 取込では未チェックだった）。
@@ -520,6 +603,7 @@ export class DokusyaImportValidator {
       row,
       lookups.existingById,
       lookups.existingByKumiaiin,
+      dto,
     );
     // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
     if (!existing) return;
@@ -557,6 +641,7 @@ export class DokusyaImportValidator {
           row,
           lookups.existingById,
           lookups.existingByKumiaiin,
+          dto,
         )
       : undefined;
 
@@ -787,7 +872,7 @@ export class DokusyaImportValidator {
         this.pushImportError(errors, {
           row: rowNo,
           field: 'dokusya_kaishi_date',
-          message: '購読開始日は本日より後の日付を入力してください。',
+          message: DOKUSYA_KAISHI_DATE_FUTURE_MESSAGE,
         });
       }
       return;
@@ -809,6 +894,7 @@ export class DokusyaImportValidator {
   private validateImportRowRefs(
     row: ImportDokusyaRowDto,
     rowNo: number,
+    dto: ImportDokusyaDto,
     lookups: ImportRowLookups,
     errors: ImportRowError[],
   ): void {
@@ -850,6 +936,22 @@ export class DokusyaImportValidator {
         field: 'hanbaiten_code',
         message: '指定された販売店コードは廃店のため選択できません。',
       });
+    } else if (
+      row.hanbaiten_code &&
+      String(row.hanbaiten_code) === HANBAITEN_DUMMY_CODE &&
+      !isDigitalOrBoth(dto.dokusya_shubetsu)
+    ) {
+      // バグ報告2026-08：電子版単独用のダミー販売店(9999999999)を紙版の取込で
+      // 選択できてしまっていた。ダミーは「配達先の販売店が無い」を意味する
+      // ため（hanbaiten-dummy.constant.ts）、紙を配る読者に付くと増減連絡票・
+      // 名簿の配達担当が誤る。ACSMS-SCR-011 の登録/編集画面は既に
+      // BaseHanbaitenSelect でダミーを候補から除外しているので、Excel取込の
+      // 自由入力だけがこのガードを欠いていた。
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'hanbaiten_code',
+        message: HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE,
+      });
     }
     if (
       row.kanri_shiten_code &&
@@ -863,12 +965,177 @@ export class DokusyaImportValidator {
     }
     if (
       row.shiten_code &&
-      !lookups.shitenCodeSet.has(String(row.shiten_code))
+      !lookups.shitenCodeSet.has(String(row.shiten_code)) &&
+      // 管理支店に固定されたアカウントは validateImportRowKanriShitenScope が
+      // 「存在しない/自管理支店配下でない」を1つのメッセージにまとめて報告する
+      // ので、ここでの汎用メッセージは二重報告になるため出さない。
+      lookups.ownKanriShitenCode == null
     ) {
       this.pushImportError(errors, {
         row: rowNo,
         field: 'shiten_code',
         message: '指定された支店が見つかりません。',
+      });
+    }
+  }
+
+  /**
+   * [layer4-scope-guard] 管理支店(kanri_shiten)/支店(shiten) のスコープ検証
+   * （顧客要件2026-08）。存在チェック自体は {@link validateImportRowRefs} の
+   * 担当なので、ここは「存在するがこの取込では使えない」ケースだけを見る
+   * （存在しない場合はそちらのエラーに任せ、二重報告を避ける）。
+   *
+   * 1. 管理支店自体の取扱いフラグ（m_kanri_shiten.paper_flg/denshi_flg）—
+   *    アカウントの取扱いフラグ(m_account)とは別物。全アカウント共通。
+   * 2. 行内の親子関係整合性 — 指定された shiten_code が同じ行の kanri_shiten_code
+   *    配下に実在するか。全アカウント共通（不具合報告2026-08）。
+   * 3. session.kanri_shiten_id のみ固定（shiten_id=null）のアカウント —
+   *    自管理支店以外を指定できない。支店を追加指定する場合は自管理支店配下
+   *    でなければならない。
+   * 4. session.kanri_shiten_id と shiten_id の両方が固定されたアカウント —
+   *    自管理支店／自支店以外を一切指定できない。
+   */
+  private validateImportRowKanriShitenScope(
+    row: ImportDokusyaRowDto,
+    rowNo: number,
+    dto: ImportDokusyaDto,
+    lookups: ImportRowLookups,
+    session: SessionPayload,
+    errors: ImportRowError[],
+  ): void {
+    const kanriShitenCode = row.kanri_shiten_code
+      ? String(row.kanri_shiten_code)
+      : '';
+    const shitenCode = row.shiten_code ? String(row.shiten_code) : '';
+    if (!kanriShitenCode || !lookups.kanriShitenCodeSet.has(kanriShitenCode)) {
+      return;
+    }
+
+    this.validateKanriShitenHandlesShubetsu(
+      kanriShitenCode,
+      Number(dto.dokusya_shubetsu),
+      rowNo,
+      lookups,
+      errors,
+    );
+    this.validateShitenBelongsToKanriShiten(
+      kanriShitenCode,
+      shitenCode,
+      rowNo,
+      lookups,
+      errors,
+    );
+    this.validateAccountKanriShitenScope(
+      kanriShitenCode,
+      shitenCode,
+      rowNo,
+      lookups,
+      errors,
+    );
+  }
+
+  /**
+   * [layer4-scope-guard] 行内の親子関係整合性 — 支店(shiten_code)が、同じ行で
+   * 指定された管理支店(kanri_shiten_code)の配下に実在するか（不具合報告
+   * 2026-08：無関係な管理支店/支店の組合せ（例: 支店Bは管理支店Cの配下なのに
+   * kanri_shiten_code=A・shiten_code=Bで取込）でも取込が成功していた）。
+   *
+   * アカウントのスコープに関わらず全アカウント共通で検証する。ただし
+   * session.kanri_shiten_id で固定されたアカウント（JA_KANRI_SHITEN）は
+   * {@link validateAccountKanriShitenScope} が自スコープとの整合性を別途・
+   * より厳密に検証し同じ組合せで重複報告になるため対象外
+   * （ownKanriShitenCode != null はスキップ）。存在しない支店コード自体は
+   * {@link validateImportRowRefs} が報告するのでここでは対象外。
+   */
+  private validateShitenBelongsToKanriShiten(
+    kanriShitenCode: string,
+    shitenCode: string,
+    rowNo: number,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    if (lookups.ownKanriShitenCode != null) return;
+    if (!shitenCode || !lookups.shitenCodeSet.has(shitenCode)) return;
+    const belongsTo = lookups.shitenKanriShitenCodeByCode.get(shitenCode);
+    if (belongsTo !== kanriShitenCode) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'shiten_code',
+        message: `支店「${shitenCode}」は管理支店「${kanriShitenCode}」配下の支店ではありません。`,
+      });
+    }
+  }
+
+  /** [layer4-scope-guard] 1. 管理支店自体の取扱いフラグ（m_kanri_shiten）。 */
+  private validateKanriShitenHandlesShubetsu(
+    kanriShitenCode: string,
+    shubetsu: number,
+    rowNo: number,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    const flags = lookups.kanriShitenFlagsByCode.get(kanriShitenCode);
+    if (!flags) return;
+    if (shubetsu === DokusyaShubetsu.PAPER && !flags.paperFlg) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'kanri_shiten_code',
+        message: `管理支店「${kanriShitenCode}」は紙版を取り扱っていないため指定できません。`,
+      });
+    } else if (shubetsu === DokusyaShubetsu.DIGITAL && !flags.denshiFlg) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'kanri_shiten_code',
+        message: `管理支店「${kanriShitenCode}」は電子版を取り扱っていないため指定できません。`,
+      });
+    }
+  }
+
+  /**
+   * [layer4-scope-guard] 2/3. ログイン中アカウント自身の管理支店/支店スコープ。
+   * session.kanri_shiten_id が未固定（CHUOKAI/JA_HONTEN/NICHINO_*）ならスコープ
+   * 制約自体が無いので即 return。
+   */
+  private validateAccountKanriShitenScope(
+    kanriShitenCode: string,
+    shitenCode: string,
+    rowNo: number,
+    lookups: ImportRowLookups,
+    errors: ImportRowError[],
+  ): void {
+    if (lookups.ownKanriShitenCode == null) return;
+
+    if (lookups.ownShitenCode != null) {
+      // 3. 管理支店 + 支店の両方に固定されたアカウント。
+      const kanriMismatch = kanriShitenCode !== lookups.ownKanriShitenCode;
+      const shitenMismatch =
+        shitenCode !== '' && shitenCode !== lookups.ownShitenCode;
+      if (kanriMismatch || shitenMismatch) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: kanriMismatch ? 'kanri_shiten_code' : 'shiten_code',
+          message: `このアカウントは管理支店「${lookups.ownKanriShitenCode}」／支店「${lookups.ownShitenCode}」の読者のみ取込できます。`,
+        });
+      }
+      return;
+    }
+
+    // 2. 管理支店のみに固定されたアカウント（shiten_id=null）。
+    if (kanriShitenCode !== lookups.ownKanriShitenCode) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'kanri_shiten_code',
+        message: `管理支店は自管理支店「${lookups.ownKanriShitenCode}」のみ指定できます。`,
+      });
+      return;
+    }
+    if (shitenCode === '') return;
+    const belongsTo = lookups.shitenKanriShitenCodeByCode.get(shitenCode);
+    if (belongsTo !== lookups.ownKanriShitenCode) {
+      this.pushImportError(errors, {
+        row: rowNo,
+        field: 'shiten_code',
+        message: `支店「${shitenCode}」は管理支店「${lookups.ownKanriShitenCode}」配下の支店ではありません。`,
       });
     }
   }
@@ -902,6 +1169,7 @@ export class DokusyaImportValidator {
         row,
         lookups.existingById,
         lookups.existingByKumiaiin,
+        dto,
       );
       // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
       if (!existing) return;
@@ -1072,6 +1340,7 @@ export class DokusyaImportValidator {
         row,
         lookups.existingById,
         lookups.existingByKumiaiin,
+        dto,
       );
       // 見つからない行は classifyImportRow が「購読者が見つかりません」を出す。
       if (!existing) return;
@@ -1116,6 +1385,14 @@ export class DokusyaImportValidator {
    * §4.3.4 — 集約件数用に行を created / updated / cancelled へ分類。UPDATE_* /
    * 一括中止 は既存レコード必須（スコープ外→403、該当なし→行エラーで null 返す）。
    * NEW 行は常に 'created'。
+   *
+   * [id-required-on-update・不具合修正2026-08] 通常更新（`joho_henko_tekiyo_date`
+   * 指定）と一括中止（`dokusya_chushi_date` 指定）でキー解決ルールを分ける:
+   *   - 通常更新: `dokusya_id` 必須。`kumiaiin_code` は重複しうるキーのため、
+   *     通常更新ではフォールバックとして一切使わない（誤って別の購読者を
+   *     更新する事故を作り込む余地を無くす）。
+   *   - 一括中止: 従来どおり `dokusya_id` 優先、無ければ `kumiaiin_code`
+   *     （2件以上ヒットなら曖昧としてエラー・`isAmbiguousKumiaiinKey`）。
    */
   private classifyImportRow(
     row: ImportDokusyaRowDto,
@@ -1132,10 +1409,24 @@ export class DokusyaImportValidator {
       row.dokusya_id !== undefined &&
       row.dokusya_id !== null &&
       String(row.dokusya_id) !== '';
+    const isBulkStop = dbDateOrNull(dto.dokusya_chushi_date) != null;
 
-    // dokusya_id が無い行は kumiaiin_code をキーにする。組合員コードは重複可
-    // のため、同一コードが 2 件以上ある場合は一括誤更新を防ぐため行エラー。
-    if (this.isAmbiguousKumiaiinKey(row, hasDokusyaId, lookups)) {
+    if (!isBulkStop) {
+      // 通常更新 — dokusya_id 必須。kumiaiin_code は重複可のためフォールバック
+      // キーとして使わない（下の isAmbiguousKumiaiinKey / resolveExistingRow の
+      // kumiaiin_code 分岐は一括中止専用にする）。
+      if (!hasDokusyaId) {
+        this.pushImportError(errors, {
+          row: rowNo,
+          field: 'dokusya_id',
+          message: 'IDは必須です。',
+        });
+        return null;
+      }
+    } else if (this.isAmbiguousKumiaiinKey(row, hasDokusyaId, lookups)) {
+      // 一括中止のみ: dokusya_id が無い行は kumiaiin_code をキーにする。組合員
+      // コードは重複可のため、同一コードが2件以上ある場合は一括誤解約を防ぐため
+      // 行エラー。
       this.pushImportError(errors, {
         row: rowNo,
         field: 'kumiaiin_code',
@@ -1148,6 +1439,7 @@ export class DokusyaImportValidator {
       row,
       lookups.existingById,
       lookups.existingByKumiaiin,
+      dto,
     );
     if (!existing) {
       this.pushImportError(errors, {
@@ -1201,10 +1493,22 @@ export class DokusyaImportValidator {
    * — UPDATE 句の WHERE と一致）。無い場合のみ kumiaiin_code にフォールバック
    * （呼び出し側で重複件数を検証済み）。
    */
+  /**
+   * [id-required-on-update・不具合修正2026-08] `dokusya_id` 優先、無ければ
+   * `kumiaiin_code` にフォールバック — だが、このフォールバックは**一括中止
+   * （`dto.dokusya_chushi_date` 指定）でのみ**許可する。通常更新
+   * （`joho_henko_tekiyo_date` 指定）で `dokusya_id` が無い行は、たとえ
+   * `kumiaiin_code` が一意にヒットしても未解決(`undefined`)として扱う —
+   * `classifyImportRow` がこれを検知して「IDは必須です。」の行エラーを出し、
+   * 本メソッドを呼ぶ他の全チェック（購読種別照合・適用日整合性・読者属性・
+   * メール重複）も静かにスキップする（いずれも「見つからない行は
+   * classifyImportRow が出す」前提で `if (!existing) return;` している）。
+   */
   private resolveExistingRow(
     row: ImportDokusyaRowDto,
     byId: Map<number, Record<string, unknown>>,
     byKumiaiin: Map<string, Record<string, unknown>>,
+    dto: ImportDokusyaDto,
   ): Record<string, unknown> | undefined {
     const hasDokusyaId =
       row.dokusya_id !== undefined &&
@@ -1213,6 +1517,8 @@ export class DokusyaImportValidator {
     if (hasDokusyaId) {
       return byId.get(Number(row.dokusya_id));
     }
+    const isBulkStop = dbDateOrNull(dto.dokusya_chushi_date) != null;
+    if (!isBulkStop) return undefined;
     return row.kumiaiin_code ? byKumiaiin.get(row.kumiaiin_code) : undefined;
   }
 }

@@ -19,6 +19,7 @@ import {
   ShiharaiHoho,
   TetsuzukiShurui,
 } from '@/common/enums';
+import { DOKUSYASO_BUNRUI_CODES } from '@/common/constants/dokusya-bunrui.constant';
 
 /**
  * 空文字 → undefined 変換。`@IsOptional()` は `null`／`undefined` のみスキップし
@@ -130,7 +131,7 @@ export class SearchDokusyaDto {
 
   @ApiPropertyOptional({
     description:
-      '連絡先（部分一致）。購読者連絡先1/2・配達先連絡先1/2を横断して OR 検索',
+      '連絡先（部分一致）。購読者TEL1/2・配達先TEL1/2を横断して OR 検索',
     maxLength: 15,
   })
   @Transform(blankToUndef)
@@ -326,6 +327,21 @@ export class SearchDokusyaDto {
   @IsOptional()
   @IsBoolean({ message: '有効単価フラグの値が不正です。' })
   active_tanka_flg?: boolean;
+
+  // ─── 購読者層分類（顧客CR 2026-08-24）────────────────────────────────────────
+  // t_dokusya.dokusyaso_bunrui は CSV（複数分類を同時に持てる、例 "0,1"）。
+  // 検索は単一コード指定 — CSV 内にそのトークンを含む行を抽出する
+  // （dokusya-search.service.ts 側で `,code,` 部分一致）。値は文字列コード
+  // （DOKUSYASO_BUNRUI_CODES — 数値ではない。create-dokusya.dto.ts と同じ制約）。
+  @ApiPropertyOptional({
+    description: '購読者層分類（0:農業者, 1:JAグループ役職員, 2:企業・団体, 3:学生, 999:その他）。CSV内にこのコードを含む行を検索。',
+    enum: DOKUSYASO_BUNRUI_CODES,
+  })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '購読者層分類は文字列で指定してください。' })
+  @IsIn(DOKUSYASO_BUNRUI_CODES, { message: '購読者層分類の値が不正です。' })
+  dokusyaso_bunrui?: string;
 
   // ─── ページネーション + ソート ────────────────────────────────────────────────
   @ApiPropertyOptional({ description: 'ページ番号（デフォルト: 1）', minimum: 1 })

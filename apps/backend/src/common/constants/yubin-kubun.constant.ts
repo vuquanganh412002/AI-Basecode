@@ -7,7 +7,7 @@
  *
  * ※ `t_dokusya.yubin_kubun` は VARCHAR — 値は数値ではなく文字列。
  */
-/** 空（郵送なし・既定値） */
+/** 配達（郵送なし・既定値。m_code.code_name は顧客CR 2026-08-24 で「空」→「配達」に改称） */
 export const YUBIN_KUBUN_NASHI = '0';
 /** 郵送 */
 export const YUBIN_KUBUN_YUSO = '1';

@@ -949,15 +949,15 @@ defineExpose({ formState, state, fetchList, editingId, disabledEndDate });
               >
                 JA名
               </label>
-              <!-- BaseJaDropdown: サーバーページング（50/頁）+ 無限スクロール +
-                   ja_name のみ ILIKE。ACSMS-SCR-024 アカウント画面と同じ挙動。 -->
+              <!-- BaseJaDropdown: サーバーページング（50/頁）+ 無限スクロール。
+                   既定（label-format/search-field 省略）で JAコード・JA名の
+                   両方を表示・検索対象にする — ファイルアップロード画面
+                   「対象JA」・アカウント画面と同じ UX に統一（顧客要件2026-08）。 -->
               <div class="flex-1 min-w-0">
                 <BaseJaDropdown
                   id="oshirase_ja_id"
                   v-model:value="formState.ja_id"
                   placeholder="全JA向け"
-                  label-format="name"
-                  search-field="name"
                 />
               </div>
             </div>

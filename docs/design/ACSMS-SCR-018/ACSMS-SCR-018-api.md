@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-04-16
 created_date: 2026/04/16
 created_by: Dao Van Thang
-updated_date: 2026/05/18
-updated_by: Dao Van Thang
+updated_date: 2026/08/24
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -20,6 +20,8 @@ updated_by: Dao Van Thang
 | 1   | 2026/04/16 | 1.0  | Dao Van Thang | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/18 | 1.2  | Dao Van Thang | 画面設計書 v1.2 対応：検索条件「廃店フラグ」追加（デフォルトは廃店=false のレコードのみ表示）、一覧レスポンスに「都道府県」（m_todofuken JOIN による todofuken_name）追加、列ラベルを「手数料区分」→「振込手数料負担区分」、「支払区分」→「配達手数料支払サイクル」に変更 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/07/17 | 1.3  | Tran Duc Tuyen | 顧客要件 2026-07 改訂：失効単価参照フィルタ `inactive_tanka_flg`（真偽・失効のみ）を **有効単価フラグ `active_tanka_flg`（トライステート：true=有効単価参照のみ / false=失効単価参照のみ / 省略=両方）** へ変更。UI を単価一覧(SCR-006)と同一のラジオ（有効/無効）に統一。SCR-021 の失効単価エラーからの導線(`?inactive_tanka=1`)は「無効(false)」で初期選択。非相関サブクエリの active_flg はパラメータバインド。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 4   | 2026/08/24 | 1.4  | Tran Duc Tuyen | 顧客CR：`haiten_flg` の検索仕様を 2026-05-26 の完全一致方式（`true`=廃店のみ表示）から「含む」方式（`true`=廃店も含めて全件表示）へ再変更。チェックボックスラベルも「廃店フラグ」→「廃店を含む」に戻す。 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 5   | 2026/08/24 | 1.5  | Tran Duc Tuyen | 顧客CR：`GET /api/v1/hanbaiten/export`（ACSMS-API-018-003）を新規追加。検索条件で絞り込んだ販売店一覧をExcel出力する（最大5,000件、0件→404 `EXPORT_NO_DATA`、超過→409 `EXPORT_LIMIT_EXCEEDED`）。 | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -86,7 +88,7 @@ updated_by: Dao Van Thang
 | 5   | address        | String  | -        | -    |        | 200    | 住所（部分一致検索）                                                                             |
 | 6   | shocho_name    | String  | -        | -    |        | 50     | 所長名（部分一致検索）                                                                           |
 | 6.5 | ja_id          | Number  | -        | -    |        |        | JA絞り込み（NICHINO_STAFF 代行入力 専用）。セッションが JA スコープ役（CHUOKAI/JA_HONTEN/JA_KANRI_SHITEN）の場合は無視され session.ja_id が優先される。1以上の整数。 |
-| 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店フラグ（完全一致：`true`=廃店のレコードのみ表示、`false`=営業中のレコードのみ表示）。**省略時は false（営業中のみ表示、廃店フラグが立っているレコードは一覧に表示しない）**。`true`は「廃店も含む」ではなく「廃店のみに絞り込む」（顧客要件2026-05-26：ラベル「廃店を含む」→「廃店フラグ」）。画面設計書 v1.2 §1.1 / §2.1 参照 |
+| 7   | haiten_flg     | Boolean | -        | -    |        |        | 廃店を含む（`true`=廃店も含めて全件表示、`false`=営業中のレコードのみ表示）。**省略時は false（営業中のみ表示、廃店フラグが立っているレコードは一覧に表示しない）**。`true`は「廃店のみに絞り込む」ではなく「廃店も含む」（顧客CR 2026-08-24：2026-05-26の完全一致仕様＋ラベル「廃店フラグ」を撤回し、ラベル「廃店を含む」＋含む方式に戻す）。画面設計書 v1.2 §1.1 / §2.1 参照 |
 | 7.5 | active_tanka_flg | Boolean | -    | -    |        |        | 有効単価フラグ（SCR-021 error gate 連携・顧客要件2026-07 改訂）。単価一覧(SCR-006)と同一のトライステート: `true`=有効単価(active_flg=TRUE)を参照する販売店のみ、`false`=失効単価(active_flg=FALSE)を参照する販売店のみ、省略=両方。参照する配達手数料単価は m_hanbaiten.haitatsuryo_tanka_id → m_tanka.tanka_type=2。配達手数料出力(SCR-021)の失効単価エラーからは `false`(無効)で初期選択される |
 | 8   | page           | Number  | -        | -    |        |        | ページ番号（1始まり）。デフォルト: 1                                                              |
 | 9   | per_page       | Number  | -        | -    |        |        | 1ページあたりの件数（1〜100）。デフォルト: 20                                                     |
@@ -230,7 +232,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
   - address：最大200桁
   - shocho_name：最大50桁
   - ja_id：1以上の整数（NICHINO_STAFF 代行入力 専用の絞り込み。JAスコープ役では無視される）
-  - haiten_flg：Boolean型チェック（完全一致）。省略時は false（営業中のレコードのみ表示。廃店フラグが立っているレコードは一覧に表示しない、画面設計書 v1.2 §1.1 / §2.1 参照）
+  - haiten_flg：Boolean型チェック。省略時は false（営業中のレコードのみ表示。廃店フラグが立っているレコードは一覧に表示しない）。`true`指定時は廃店も含めて全件表示（画面設計書 v1.2 §1.1 / §2.1、顧客CR 2026-08-24 参照）
   - active_tanka_flg：Boolean型チェック。省略時は絞り込まない（両方表示）
   - page：正の整数。デフォルト: 1
   - per_page：1〜100の整数。デフォルト: 20
@@ -255,7 +257,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
   - CHUOKAI, JA_HONTEN, JA_KANRI_SHITEN：`ja_id = :ja_id`（自JAのみ。クエリパラメータ `ja_id` が指定されても無視される）
 - 基本条件：
   - `deleted_at IS NULL`（論理削除除外：必須条件）
-  - **`haiten_flg = :haiten_flg`（完全一致。省略時は `false` を設定し営業中のレコードのみ表示、`haiten_flg=true` 明示指定時は廃店のレコードのみ表示、画面設計書 v1.2 §1.1 / §2.1 参照）**
+  - **`haiten_flg=true` が明示指定された場合はフィルタなし（営業中＋廃店の全件表示）、それ以外（省略時含む）は `haiten_flg = false`（営業中のレコードのみ表示、画面設計書 v1.2 §1.1 / §2.1、顧客CR 2026-08-24 参照）**
 - 検索条件（指定時のみ追加）：
   - ja_id 指定時（NICHINO_STAFF 代行入力専用。JAスコープ役では無視される）：`ja_id = :ja_id`
   - hanbaiten_code 指定時：`hanbaiten_code ILIKE '%' || :hanbaiten_code || '%'`
@@ -281,7 +283,7 @@ GET /api/v1/hanbaiten?hanbaiten_name=山田&tel=03&haiten_flg=false&page=1&per_p
 SELECT COUNT(*) AS total
 FROM m_hanbaiten h
 WHERE h.deleted_at IS NULL
-  AND h.haiten_flg = :haiten_flg
+  AND (:haiten_flg = TRUE OR h.haiten_flg = FALSE)
   AND (:role_code = 'NICHINO_STAFF' OR h.ja_id = :ja_id)
   AND (:hanbaiten_code IS NULL OR h.hanbaiten_code ILIKE '%' || :hanbaiten_code || '%')
   AND (:hanbaiten_name IS NULL OR h.hanbaiten_name ILIKE '%' || :hanbaiten_name || '%')
@@ -297,7 +299,7 @@ WHERE h.deleted_at IS NULL
       ))
 ```
 
-> `:haiten_flg` は、クエリパラメータ `haiten_flg=true` が指定された場合に `true`、それ以外（省略時含む）は `false` を設定する（完全一致フィルタ、「含める／除外する」ではない）。
+> `:haiten_flg` は、クエリパラメータ `haiten_flg=true` が指定された場合に `true`、それ以外（省略時含む）は `false` を設定する。`true` のときはフィルタ自体を効かせず（`h.haiten_flg = FALSE` の条件を外す）廃店も含めて全件表示、`false`（省略時含む）のときのみ営業中に絞り込む「含める／除外する」方式（顧客CR 2026-08-24）。
 > `:active_tanka_flg` はクエリパラメータ `active_tanka_flg` をそのままバインドする。省略時は `NULL`（絞り込まない）。
 
 ### 4.5 データ取得
@@ -312,7 +314,7 @@ SELECT h.hanbaiten_id, h.ja_id, h.hanbaiten_code, h.hanbaiten_name,
 FROM m_hanbaiten h
 LEFT JOIN m_todofuken t ON h.todofuken_code = t.todofuken_code
 WHERE h.deleted_at IS NULL
-  AND h.haiten_flg = :haiten_flg
+  AND (:haiten_flg = TRUE OR h.haiten_flg = FALSE)
   AND (:role_code = 'NICHINO_STAFF' OR h.ja_id = :ja_id)
   AND (:hanbaiten_code IS NULL OR h.hanbaiten_code ILIKE '%' || :hanbaiten_code || '%')
   AND (:hanbaiten_name IS NULL OR h.hanbaiten_name ILIKE '%' || :hanbaiten_name || '%')
@@ -593,3 +595,190 @@ VALUES (3, NOW(), :account_id, :ja_id,
         :error_message, :stack_trace,
         :ip_address, :user_agent)
 ```
+
+---
+
+# API ACSMS-API-018-003
+
+顧客CR 2026-08-24 で追加。
+
+## 概要
+
+| 項目                   | 内容                                                                                                                                                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API名                  | Export Hanbaiten Excel                                                                                                                                                                                                                                     |
+| 概要                   | 現在の検索条件で販売店一覧をExcel形式で出力する（最大5,000件、超過時は409エラー）                                                                                                                                                                          |
+| URI                    | /api/v1/hanbaiten/export                                                                                                                                                                                                                                   |
+| メソッド               | GET                                                                                                                                                                                                                                                        |
+| リクエストボディー     | なし                                                                                                                                                                                                                                                       |
+| リクエストパラメーター | クエリパラメータ（ACSMS-API-018-001 と同じ検索条件、page / per_page / sort_by / sort_order は無視）                                                                                                                                                        |
+| ヘッダ                 | Content-Type: application/json  ※ 認証情報はHTTP-only Cookieにより自動的に送信される                                                                                                                                                                     |
+| HTTPレスポンスコード   | 200:正常にExcelをダウンロードしました, 401:セッションが切れました。再度ログインしてください, 403:この画面へのアクセス権限がありません, 404:出力データがありません, 409:出力データ件数が5000件を超えています, 500:システムエラーが発生しました |
+
+## リクエストパラメータ
+
+| #   | パラメーターID | タイプ  | 繰り返し | 必須 | 最小長 | 最大長 | 説明                                                       |
+| --- | -------------- | ------- | -------- | ---- | ------ | ------ | ---------------------------------------------------------- |
+| 1   | （ACSMS-API-018-001 と同じ検索条件パラメータ。page / per_page / sort_by / sort_order を除く） | | | | | | |
+
+## レスポンスデータ
+
+Excelファイル（`Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`）
+
+### レスポンスヘッダ
+
+```
+Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+Content-Disposition: attachment; filename*=UTF-8''<URLエンコードした 販売店一覧出力_YYYYMMDD_HHmmss.xlsx>
+```
+
+### Excelフォーマット
+
+> 検索結果テーブルと同じ列構成（14列）。JA はコード/名称の2列に分ける。委託区分 / 振込手数料負担区分 は m_code（`ITAKU_KUBUN` / `TESURYO_KUBUN`）のラベルを出力する（`CodeService.getLabel` で解決）。廃店フラグは検索結果テーブルと同じ表示（`true`→「廃店」、`false`→空欄）。
+
+| 列順 | カラム名               | 説明                                                  |
+| ---- | ---------------------- | ----------------------------------------------------- |
+| 1    | 販売店コード           | hanbaiten_code                                        |
+| 2    | 販売店名               | hanbaiten_name                                        |
+| 3    | JAコード               | ja_code（m_ja JOIN）                                  |
+| 4    | JA名                   | ja_name（m_ja JOIN）                                  |
+| 5    | 都道府県               | todofuken_name（m_todofuken JOIN）                    |
+| 6    | 郵便番号               | yubin_no                                              |
+| 7    | 住所                   | address                                                |
+| 8    | 電話番号               | tel                                                    |
+| 9    | FAX                    | fax                                                    |
+| 10   | 所長名                 | shocho_name                                           |
+| 11   | 委託区分               | itaku_kubun（m_code ラベル）                          |
+| 12   | 配達手数料支払サイクル | haitatsuryo_shiharai_cycle（「Nヵ月」形式）           |
+| 13   | 振込手数料負担区分     | furikomi_tesuryo_futan_kubun（m_code ラベル）         |
+| 14   | 廃店フラグ             | haiten_flg（`true`→「廃店」、`false`→空欄）           |
+
+## リクエスト例
+
+```
+GET /api/v1/hanbaiten/export?hanbaiten_name=山田&haiten_flg=true
+```
+
+## レスポンス成功例
+
+Excelファイル（バイナリ）を返却する。HTTP 200。
+
+## レスポンス失敗例
+
+### 401 Unauthorized
+
+```json
+{
+  "error_code": "UNAUTHORIZED",
+  "message": "セッションが切れました。再度ログインしてください。"
+}
+```
+
+### 403 Forbidden
+
+```json
+{
+  "error_code": "FORBIDDEN",
+  "message": "この画面へのアクセス権限がありません。"
+}
+```
+
+### 404 Export No Data
+
+```json
+{
+  "error_code": "EXPORT_NO_DATA",
+  "message": "出力データがありません。"
+}
+```
+
+### 409 Export Limit Exceeded
+
+```json
+{
+  "error_code": "EXPORT_LIMIT_EXCEEDED",
+  "message": "出力データ件数が5000件を超えています。"
+}
+```
+
+### 500 Internal Server Error
+
+```json
+{
+  "error_code": "INTERNAL_SERVER_ERROR",
+  "message": "システムエラーが発生しました。しばらくしてから再度お試しください"
+}
+```
+
+## 処理手順
+
+### 4.1 リクエストのバリデーション
+
+- クエリパラメータの検証：ACSMS-API-018-001 と同じ検索条件（page / per_page / sort_by / sort_order は無視）。
+- 不正なパラメータの場合：HTTP 400 (`BAD_REQUEST`) または HTTP 400 (`VALIDATION_ERROR`)
+
+### 4.2 認証・認可チェック
+
+- 認証情報を検証する（HTTP-only Cookieセッション）。
+- 未認証の場合：HTTP 401 (`UNAUTHORIZED`)
+- 必要権限: `hanbaiten.view` または `hanbaiten.daiko_input`（ACSMS-API-018-001 と同じ OR 条件）
+- 該当権限保持ロール: NICHINO_STAFF（代行入力） / CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN
+- 権限不足の場合：HTTP 403 (`FORBIDDEN`)
+- DataScope: ACSMS-API-018-001 と同じ（restricted role は自 ja_id、NICHINO_* は無制限）
+
+### 4.3 データ件数チェック（5,000件上限）
+
+- 検索条件で対象件数を先にカウントする（DataScope + haiten_flg + 各フィルタ適用、ACSMS-API-018-001 §4.3 と同じ条件）。
+- 件数が 0 の場合：HTTP 404 (`EXPORT_NO_DATA`)
+- 件数が 5,000 を超える場合：HTTP 409 (`EXPORT_LIMIT_EXCEEDED`)
+
+### 4.4 データ取得
+
+- ACSMS-API-018-001 §4.3 と同じ SELECT 条件を使用する（pagination なし、hanbaiten_id ASC で決定的な順序、LIMIT 5000）。
+- todofuken_name / ja_code / ja_name は本体クエリ後にバッチ解決する（ACSMS-API-018-001 と同じ方式）。
+
+### 4.5 Excel生成
+
+- ファイル名：`販売店一覧出力_YYYYMMDD_HHmmss.xlsx`（現在日時、JST）
+- 文字コード：UTF-8
+- ヘッダー行（検索結果テーブルと一致、14列）：`販売店コード, 販売店名, JAコード, JA名, 都道府県, 郵便番号, 住所, 電話番号, FAX, 所長名, 委託区分, 配達手数料支払サイクル, 振込手数料負担区分, 廃店フラグ`
+- 委託区分 / 振込手数料負担区分 は m_code ラベルを `CodeService.getLabel` で解決して出力する
+
+### 4.6 操作ログ記録
+
+- 以下のSQLを実行して操作ログを記録する。
+
+```sql
+INSERT INTO t_log (log_type, log_datetime, account_id, ja_id,
+                   gamen_name, operation, result_status,
+                   target_id, target_table, before_value, after_value,
+                   ip_address, user_agent)
+VALUES (1, NOW(), :account_id, :ja_id,
+        '販売店明細検索画面 (ACSMS-SCR-018)', 'EXPORT_EXCEL', 1,
+        NULL, 'm_hanbaiten', '', :after_value_json,
+        :ip_address, :user_agent)
+```
+
+**after_value 例:**
+
+```
+`before_value`：EXPORT のため空文字列を設定する。
+`after_value`：エクスポート条件と件数をJSON形式で格納する。
+
+{
+  "ja_id": null,
+  "haiten_flg": true,
+  "record_count": 42
+}
+```
+
+### 4.7 レスポンス生成
+
+- Excel ファイルをレスポンスボディとして返却する。HTTP 200。
+- `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- `Content-Disposition: attachment; filename*=UTF-8''<URLエンコードした 販売店一覧出力_YYYYMMDD_HHmmss.xlsx>`
+
+### 4.8 例外処理
+
+- DB接続エラー・Excel生成エラー等の場合：HTTP 500 (`INTERNAL_SERVER_ERROR`)
+- エラー発生時も操作ログを記録する（`log_type = 3`、トランザクション外で記録）。

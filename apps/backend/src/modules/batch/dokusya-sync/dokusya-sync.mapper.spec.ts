@@ -169,6 +169,55 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     expect(mapUserToDokusyaFields(buildUser({ approval: 9 }), FK).denshiShoninStatus).toBeNull();
   });
 
+  describe('denshi_shonin_status — 承認ワークフロー対象外カテゴリは approval を無視して常に NULL（不具合修正2026-08）', () => {
+    it('電子版(2) + クレジットカード(payment_id=6) は approval が承認済(1)でも NULL', () => {
+      const result = mapUserToDokusyaFields(
+        buildUser({ payment_id: 6, approval: 1, member_type: 2, paper_permission_dt: null }),
+        FK,
+      );
+      expect(result.dokusyaShubetsu).toBe(DokusyaShubetsu.DIGITAL);
+      expect(result.shiharaiHoho).toBe(ShiharaiHoho.CREDIT_CARD);
+      expect(result.denshiShoninStatus).toBeNull();
+    });
+
+    it('併読(paper_permission_dt あり) は approval が承認済(1)でも NULL', () => {
+      const result = mapUserToDokusyaFields(
+        buildUser({ paper_permission_dt: '20260401', approval: 1, payment_id: 6 }),
+        FK,
+      );
+      expect(result.dokusyaShubetsu).toBe(DokusyaShubetsu.BOTH);
+      expect(result.denshiShoninStatus).toBeNull();
+    });
+
+    it('電子版(2) + 無料会員(member_type=1) は approval が承認済(1)でも NULL', () => {
+      const result = mapUserToDokusyaFields(
+        buildUser({
+          member_type: 1,
+          payment_id: 9,
+          approval: 1,
+          paper_permission_dt: null,
+        }),
+        FK,
+      );
+      expect(result.dokusyaShubetsu).toBe(DokusyaShubetsu.DIGITAL);
+      expect(result.denshiDokusyaShubetsu).toBe(0);
+      expect(result.denshiShoninStatus).toBeNull();
+    });
+
+    it('電子版(2) + 有料(member_type=2) + クレカ以外の支払方法 は従来どおり approval をマップする', () => {
+      const result = mapUserToDokusyaFields(
+        buildUser({
+          member_type: 2,
+          payment_id: 1, // 口座引落
+          approval: 0,
+          paper_permission_dt: null,
+        }),
+        FK,
+      );
+      expect(result.denshiShoninStatus).toBe(DenshiShoninStatus.PENDING);
+    });
+  });
+
   it('maps member_type → denshi_dokusya_shubetsu (1無料→0, 2有料→1)', () => {
     expect(mapUserToDokusyaFields(buildUser({ member_type: 1 }), FK).denshiDokusyaShubetsu).toBe(0);
     expect(mapUserToDokusyaFields(buildUser({ member_type: 2 }), FK).denshiDokusyaShubetsu).toBe(1);
@@ -222,9 +271,11 @@ describe('dokusya-sync.mapper — mapUserToDokusyaFields', () => {
     expect('dokusyaChushiDate' in withoutDeletedAt).toBe(false);
   });
 
-  it('joins remarks1..5 by newline skipping blanks', () => {
+  it('does NOT map remarks1..5 into biko (cloud 専有列・顧客要件2026-08-26)', () => {
     const v = mapUserToDokusyaFields(buildUser({ remarks1: 'A', remarks2: '', remarks3: 'C' }), FK);
-    expect(v.biko).toBe('A\nC');
+    // DokusyaFields に biko キー自体を含めない → CREATE 時は列既定値、UPDATE 時は
+    // 前回値から carry-forward される（shokiDokusyaKaishiDate 等と同じ規約）。
+    expect('biko' in v).toBe(false);
   });
 
   it('maps profession/products CSV via conversion table', () => {

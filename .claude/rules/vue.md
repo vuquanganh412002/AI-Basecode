@@ -453,17 +453,17 @@ async function fetchUsers() {
 
 ## Code Master (m_code) — dropdowns & labels
 
-The project enumerates 21 business categories (性別, 単価種類, 支払方法, お知らせ種別, …) via the backend `m_code` table. FE does NOT hardcode these values — they come from `GET /api/v1/codes`, cached in `useCodesStore` for the session.
+The project enumerates 23 business categories (性別, 単価種類, 支払方法, お知らせ種別, …) via the backend `m_code` table. FE does NOT hardcode these values — they come from `GET /api/v1/codes`, cached in `useCodesStore` for the session.
 
 ### Group A vs Group B — when to add a TS enum
 
-The 21 categories split into two groups by whether the values participate
+The 23 categories split into two groups by whether the values participate
 in **branching logic**:
 
 | Group | Pattern | Example categories |
 |---|---|---|
-| **A** — fixed-set, has BE branching | TS enum at [`apps/frontend/src/constants/enums/`](../../apps/frontend/src/constants/enums/) (mirroring [`apps/backend/src/common/enums/`](../../apps/backend/src/common/enums/)) **+** label via `useCodesStore().label(...)` | `LOG_TYPE`, `RESULT_STATUS`, `LOGIN_RESULT`, `OTP_TYPE`, `OSHIRASE_STATUS`, `PUBLISH_LOCATION` |
-| **B** — extensible, pure display | `m_code`-only — no enum. Both options and labels via `useCodesStore`. | `DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `GENDER`, `TANKA_TYPE`, `OSHIRASE_TYPE`, `DOWNLOAD_TYPE`, … |
+| **A** — fixed-set, has BE branching | TS enum at [`apps/frontend/src/constants/enums/`](../../apps/frontend/src/constants/enums/) (mirroring [`apps/backend/src/common/enums/`](../../apps/backend/src/common/enums/)) **+** label via `useCodesStore().label(...)` | `LOG_TYPE`, `RESULT_STATUS`, `LOGIN_RESULT`, `OTP_TYPE`, `OSHIRASE_STATUS`, `PUBLISH_LOCATION`, `DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `ITAKU_KUBUN`, `DOKUSYASO_BUNRUI`, `NOGYOSYA_BUNRUI` |
+| **B** — extensible, pure display | `m_code`-only — no enum. Both options and labels via `useCodesStore`. | `GENDER`, `TANKA_TYPE`, `OSHIRASE_TYPE`, `DOWNLOAD_TYPE`, `YOKIN_SHUBETSU`, `TESURYO_KUBUN`, … |
 
 **Group A criteria** (all must hold):
 1. The set of values is fixed by business design (not extensible at runtime).
@@ -670,7 +670,7 @@ Use `codes.labelShort(...)` when column width is tight.
 
 ### Categories currently seeded (source of truth: `docs/database/seeder.md §5`)
 
-`DOKUSYA_SHUBETSU`, `TETSUZUKI_SHURUI`, `DENSHI_DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `GENDER`, `YOKIN_SHUBETSU`, `ZEI_KUBUN`, `TANKA_TYPE`, `ITAKU_KUBUN`, `TESURYO_KUBUN`, `YUBIN_KUBUN`, `MAIL_MAGAZINE_FLG`, `OSHIRASE_TYPE`, `PUBLISH_LOCATION`, `OSHIRASE_STATUS`, `LOG_TYPE`, `RESULT_STATUS`, `FILE_UPLOAD_STATUS`, `DOWNLOAD_TYPE`, `LOGIN_RESULT`, `OTP_TYPE`.
+`DOKUSYA_SHUBETSU`, `TETSUZUKI_SHURUI`, `DENSHI_DOKUSYA_SHUBETSU`, `SHIHARAI_HOHO`, `GENDER`, `YOKIN_SHUBETSU`, `ZEI_KUBUN`, `TANKA_TYPE`, `ITAKU_KUBUN`, `TESURYO_KUBUN`, `YUBIN_KUBUN`, `MAIL_MAGAZINE_FLG`, `OSHIRASE_TYPE`, `PUBLISH_LOCATION`, `OSHIRASE_STATUS`, `LOG_TYPE`, `RESULT_STATUS`, `FILE_UPLOAD_STATUS`, `DOWNLOAD_TYPE`, `LOGIN_RESULT`, `OTP_TYPE`, `DOKUSYASO_BUNRUI`, `NOGYOSYA_BUNRUI`.
 
 ### Testing pattern
 
@@ -723,6 +723,139 @@ PROHIBITED:
 - Icon buttons without `aria-label`
 - Inputs without associated `<label>`
 - Clickable `<div>` instead of `<button>`
+### 1a. Group fields use `<fieldset>` + `<legend>`, never a label (MANDATORY)
+
+`<a-form-item label="…" name="foo">` renders `<label for="form_item_foo">` and
+injects that id into the child control. Where the id lands decides whether the
+association is valid:
+
+| Control | `id` lands on | `<label for>` |
+|---|---|---|
+| `a-input` / `a-input-number` / `a-select` / `a-date-picker` | `<input>` | ✅ valid |
+| `a-textarea` | `<textarea>` | ✅ valid |
+| **`a-radio-group`** / **`a-checkbox-group`** / several `<a-checkbox>` | **`<div>`** | ❌ |
+| **`a-switch`** | **`<button>`** | ❌ |
+
+A `<label>` names exactly ONE control, so for a group it can only ever be
+wrong. Browser Issues reports it two ways and suppressing the `for` just swaps
+one for the other: *"Incorrect use of `<label for=FORM_ELEMENT>`"* when it
+points at the group's `<div>`, *"No label associated with a form field"* when
+the `for` is dropped.
+
+**The fix is to stop antd rendering a label at all** — omit the `label` prop and
+the `#label` slot, and name the group natively with `<fieldset>` + `<legend>`.
+Native naming also means no `role="radiogroup"` / `aria-label` (Sonar
+`Web:S6819` prefers native elements over ARIA roles, and the visible text stays
+the single source of the accessible name):
+
+```vue
+<a-form-item
+  name="zei_kubun"
+  :validate-status="fieldErrors.zei_kubun ? 'error' : ''"
+  :help="fieldErrors.zei_kubun"
+>
+  <fieldset class="border-0 p-0 m-0 min-w-0">
+    <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+      <span>税区分</span>
+      <span class="text-error ml-1">*</span>
+    </legend>
+    <div class="flex items-center min-h-8">
+      <a-radio-group name="zei_kubun" v-model:value="formState.zei_kubun">
+        <a-radio v-for="o in codes.options('ZEI_KUBUN')" :key="o.value" :value="String(o.value)">
+          {{ o.label }}
+        </a-radio>
+      </a-radio-group>
+    </div>
+  </fieldset>
+</a-form-item>
+```
+
+**Copy the class lists verbatim** — every token earns its place, and the result
+is pixel-identical to antd's own label (verified by measuring all 117 form items
+across the CRUD forms before and after):
+
+| Token | Why |
+|---|---|
+| `!m-0 !mb-2` | antd's legend reset sets `margin-bottom: 24px`; the label column uses 8px |
+| `!p-0 !border-0` | that reset also carries a Bootstrap-heritage `border-bottom: 1px` — worth exactly the 1px the row was off by |
+| `!h-[22px] !leading-[22px] !text-sm` | antd's label box is 22px tall at 14px/22px |
+| `!flex !items-center` | matches the label's `inline-flex` baseline |
+| leading `!` on all of them | antd injects its reset through CSS-in-JS at runtime, which is **unlayered** and therefore outranks Tailwind's `utilities` layer |
+| `min-h-8` on the group wrapper | replaces `.ant-form-item-control-input`'s 32px min-height, which the fieldset displaces |
+| `border-0 p-0 m-0` on the fieldset | `tailwind.css` skips preflight, so UA fieldset styling still applies |
+
+Keep the group wrapper a plain `<div class="flex items-center min-h-8">` rather
+than putting flex on the group itself — an `<a-checkbox-group>` with many
+options must stay free to wrap.
+
+**Display-only fields** (a value rendered as `<span>`, no control at all) also
+must not use `<label>`. Give the title `class="form-item-title"` plus the same
+geometry (`block h-[22px] leading-[22px] mb-2 text-sm text-text-main`). Specs
+select titles with `findAll('label, legend, .form-item-title')`.
+
+**When the group sits in a `v-if` / `v-else` pair**, the fieldset must wrap both
+branches — the legend names the field whichever branch renders. Wrapping only
+the `v-if` side detaches the `v-else` and the template fails to compile.
+
+**An explicit `id` on a control inside `<a-form-item name="x">` overwrites the
+id antd injected**, orphaning the generated `for`. If you need a fixed id (e.g.
+`focusFirstError` looks fields up by name), set `html-for` to the same value:
+
+```vue
+<a-form-item html-for="bank_code" name="bank_code">
+  <a-input id="bank_code" v-model:value="formState.bank_code" />
+</a-form-item>
+```
+
+**Radio / checkbox groups need `name`.** antd renders each option as a bare
+`<input type="radio" class="ant-radio-input">` with neither id nor name.
+`<a-radio-group>` / `<a-checkbox-group>` / `<a-checkbox>` all forward a `name`
+prop onto every inner input — which is also the correct HTML grouping
+attribute. Use the field name. Two groups sharing a `name` on one page merge
+into a single native radio group, so keep them distinct.
+
+**Search-filter controls** sit next to a `<span>` title instead of inside an
+`<a-form-item>`, so nothing generates an id for them. Give each one an explicit
+`id` matching its filter key.
+
+**A `flex-1` control also needs `min-w-0`.** A flex child will not shrink below
+its content's min-content width unless `min-width` is 0, and for `<a-select>`
+that floor is the placeholder text. In a narrow grid cell the control then
+renders past the edge of its cell — at 1280px wide the 購読者名簿出力 filter
+row pushed its last field 20px outside the card. Always pair them:
+
+```vue
+<div class="flex items-center gap-2">
+  <label class="whitespace-nowrap …">支払い方法</label>
+  <a-select … class="flex-1 min-w-0" />
+</div>
+```
+
+The value ellipsises instead of overflowing. This applies to every control in a
+`flex` row — `<a-select>`, `<a-date-picker>`, `<a-input>` and the `Base*`
+wrappers alike.
+
+Regression guard: [`src/__tests__/template-a11y.spec.ts`](../../apps/frontend/src/__tests__/template-a11y.spec.ts)
+scans every `.vue` and fails CI on a new offender. It reads only the
+`<template>` block — scanning `<script>` lets a comment mentioning
+`<a-form-item …>` open a match that runs to the first real `</a-form-item>`,
+shifting every block boundary after it.
+
+**Not fixable from our side**: `<a-table :row-selection>` renders its header
+"Select all" checkbox internally with no id/name, and `getCheckboxProps` only
+reaches the per-row checkboxes.
+
+### 1b. `autocomplete` on master-data contact fields
+
+Chrome recognises `email` / `tel` / `fax` / `yubin_no` / `address` field names
+as autofillable and warns when `autocomplete` is absent. These CRUD forms
+describe a **third party** (JA, 販売店, 購読者) — not the signed-in operator —
+so autofilling the operator's own address would write wrong data. Use
+`autocomplete="off"`.
+
+Auth screens are the opposite case: the credential *is* the user's own, so
+`LoginView` / `ResetPasswordView` / `ForgotPasswordView` keep real values
+(`username`, `current-password`, `new-password`, `email`).
 
 ### 2. Keyboard Navigation
 
@@ -1391,7 +1524,6 @@ of forking it.
 | `<BaseConfirmModal>` | 削除確認 modal — pass `:open`, `:content`, `danger` |
 | `<BaseFormFooter>` | Submit + Cancel button bar at the bottom of every create/edit form |
 | `<BaseCodeSelect>` | `<a-select>` bound to an m_code category. `<BaseCodeSelect category="TANKA_TYPE" v-model:value="form.tanka_type" />` instead of importing `useCodesStore` and passing `:options="codes.options(...)"` every time. |
-| `<BasePageHeader>` | Page title + auto breadcrumb above content |
 | `<BaseIconButton>` | Round icon button with optional badge dot |
 | `<NoticeList>` | Public notice list (login screen / dashboard) |
 | `<MfaInput>` | 6-digit OTP input with auto-focus + paste support |
@@ -1427,6 +1559,7 @@ Helpers live at [`src/utils/datetime.ts`](../../apps/frontend/src/utils/datetime
 | `parseDatetimeWithSecondsTokyo(s)` | Same, with seconds (`YYYY/MM/DD HH:mm:ss`) — log search range |
 | `pickerToTokyoWallclock(d)` | Antd `<a-date-picker>` Dayjs (browser-local) → Tokyo-pinned Dayjs with the SAME wall-clock numbers (user-intent preserving) |
 | `todayIsoTokyo()` | Today as `YYYY-MM-DD` in JST (for `<input type="date">` / BE date-only columns) |
+| `isPastDayTokyo(current)` | `<a-date-picker>` `:disabled-date` — true when the cell is a calendar day BEFORE JST today (today + future selectable). The ONE shared past-day guard — every "no past dates" picker MUST route through it; never inline `current.isBefore(todayStartTokyo())` (and NEVER add `, 'day'` granularity — that recomputes the day boundary in the browser TZ and lets JST-yesterday slip through). |
 | `timestampForFilenameTokyo()` | `YYYYMMDD_HHmmss` for downloaded filenames |
 
 ### Banned patterns
@@ -1467,10 +1600,11 @@ if (start && start.getTime() < nowMinuteFloorTokyo().valueOf()) {
   fieldErrors.publish_start_date = '過去日時は指定できません。';
 }
 
-// ✅ Disable past dates on picker
+// ✅ Disable past dates on picker — use the shared helper, don't inline.
+//    Bind directly:  :disabled-date="isPastDayTokyo"
+//    or delegate:    const disabledStartDate = isPastDayTokyo;
 function disabledStartDate(current: Dayjs | null): boolean {
-  if (!current) return false;
-  return current.isBefore(todayStartTokyo());
+  return isPastDayTokyo(current);   // JST today-based, TZ-safe
 }
 
 // ✅ Picker time-panel — disable hours/minutes before "now in JST"
@@ -2280,7 +2414,7 @@ kanri_shiten_name_kana?: string;
 
 **Fixture and seed data MUST match the chosen variant.** If a screen
 goes half-width:
-- `seed-dev.ts` records use half-width katakana
+- `seed-sample-data.ts` records use half-width katakana
 - DTO spec `VALID` fixtures use half-width katakana
 - Controller / service spec request bodies use half-width katakana
 - Integration spec SQL inserts can technically stay full-width (DB-only,

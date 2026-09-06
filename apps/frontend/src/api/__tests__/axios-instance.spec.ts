@@ -37,4 +37,16 @@ describe('axios-instance', () => {
     await expect(rejected!.rejected(err)).rejects.toThrow('forwarded');
     expect(handleApiError).toHaveBeenCalledWith(err);
   });
+
+  it('response interceptor should pass a successful response through unchanged', async () => {
+    const { default: instance } = await import('@/api/axios-instance');
+    const handlers = (instance.interceptors.response as unknown as {
+      handlers: { fulfilled: (r: unknown) => unknown; rejected: unknown }[];
+    }).handlers;
+    const fulfilled = handlers.find((h) => typeof h.fulfilled === 'function');
+    expect(fulfilled).toBeDefined();
+    const response = { status: 200, data: { ok: true } };
+
+    expect(fulfilled!.fulfilled(response)).toBe(response);
+  });
 });

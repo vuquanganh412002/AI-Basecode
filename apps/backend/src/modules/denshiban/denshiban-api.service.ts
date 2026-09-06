@@ -142,6 +142,13 @@ export class DenshibanApiService {
       // リプレイ防止: UTC epoch 秒。サーバ側で now-timestamp<=300 を検証。
       timestamp: Math.floor(Date.now() / 1000),
     };
+    // TODO(debug): 暗号化前の平文payloadを全項目そのまま出力する一時ログ。
+    // 個人情報（氏名・住所・連絡先）を含むため、調査が終わったら必ず削除すること。
+    console.log(
+      `[denshiban] updateUserInfo(${action}) 平文payload(暗号化前):`,
+      JSON.stringify(plain),
+    );
+
     const body = JSON.stringify({
       payload: this.encrypt(JSON.stringify(plain), rawKey),
     });

@@ -36,6 +36,10 @@ updated_by: Tran Duc Tuyen
 | 17 | 2026/08/19 | 1.16 | Tran Duc Tuyen | 不具合修正 2026-08：電子版は`joho_henko_tekiyo_date`（読者情報変更適用日）省略を許容し、省略時は書込み側（`DokusyaImportService`）が当日を補って書き込むが、行検証（`validateImportRowTekiyoDates`）の「適用日は購読開始日以降」チェック（`collectTekiyoDateViolations`）は省略値=nullのままこの相対チェックをスキップしていた。購読開始日（`dokusya_kaishi_date`）が翌月1日等まだ到来していない電子版購読者を、適用日欄を空欄にしたままUPDATE取込（再取込含む）すると検証をすり抜け、共通履歴ライタ（`applyChange`の`findBefore`）が「当日時点で有効な直前の履歴行」を見つけられず、直前行なし（`before=null`）起点の不完全な履歴行が余分に作られてしまうバグを修正。行検証も書込み側と同じ既定値（電子版は当日）を用いて相対チェックを行うよう修正し、この組み合わせは`IMPORT_VALIDATION_ERROR`（field=joho_henko_tekiyo_date、§4.1参照）で拒否されるようにした（UI編集SCR-011は元々`assertUpdateDateConsistency`で同じ組み合わせを拒否しており、本画面のみ抜けていた）。 | | |
 | 18 | 2026/08/19 | 1.17 | Tran Duc Tuyen | 不具合修正 2026-08（重大・誤更新）：`UPDATE`モード（一括中止含む）の更新対象解決（`resolveImportTargetId`）が`WHERE dokusya_id = :id OR kumiaiin_code = :code`という**OR条件**になっており、「dokusya_id優先・無ければkumiaiin_codeで代替」という設計意図（v1.15の重複防止ガードもこの前提）に反していた。`kumiaiin_code`はUNIQUE制約が無く同一JA内で重複しうるため、同一バッチ内に同じ`kumiaiin_code`を持つ行が2件以上あると、各行が明示的に異なる`dokusya_id`を指定していても、OR条件のもう一方（`kumiaiin_code`一致）で他方の購読者にヒットしうる。実測では`LIMIT 1`（ORDER BY無し）が常に物理的に先頭の行を返すため、**2行の更新が両方とも1人の購読者に誤って適用され、もう一方の購読者は一切更新されないまま**だった（ユーザー報告「Excel再取込で作られた履歴行のデータが一致しない」の実体）。`dokusya_id`が指定されている行は`kumiaiin_code`を一切参照せず`dokusya_id`のみで検索するよう2クエリに分離して修正（§4.3.4参照）。 | | |
 | 19 | 2026/08/19 | 1.18 | Tran Duc Tuyen | 不具合修正 2026-08：廃店(`m_hanbaiten.haiten_flg=true`)の販売店・失効(`m_tanka.active_flg=false`)の単価を取込で選択できてしまう不具合を修正。修正前は取込自体が成功し、購読者詳細画面（ACSMS-SCR-011）にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。§4.3.1/§4.3.2のFK解決クエリに`active_flg`/`haiten_flg`を追加し、存在するが廃店/失効している場合は`IMPORT_VALIDATION_ERROR`（field='tanka_code'/'hanbaiten_code', message='指定された新聞単価コードは失効しています。'/'指定された販売店コードは廃店のため選択できません。'）で拒否する。廃店/失効後もレコード自体は過去購読者の履歴参照のため削除されないため、「存在しない」エラーとは区別する。NEW/UPDATE（新規選択・変更時）両方が対象。UI編集画面(SCR-011)にはこの相当チェックが元々無く、本画面で新設した業務ルール（UI側は別途要検討・本対応の範囲外）。 | | |
+| 20 | 2026/08/20 | 1.19 | Tran Duc Tuyen | 顧客要件 2026-08：通常更新（`joho_henko_tekiyo_date`指定）と一括中止（`dokusya_chushi_date`指定）で対象購読者の突合キー解決ルールを分離（§4.1/§4.3.1）。①通常更新は`dokusya_id`を必須とし、`kumiaiin_code`（同一JA内で重複しうる）へのフォールバックを廃止 — 未指定行は`IMPORT_VALIDATION_ERROR`（field=dokusya_id, message='IDは必須です。'）。②一括中止は従来どおり`dokusya_id`優先・無ければ`kumiaiin_code`（2件以上ヒットで曖昧エラー）を維持。画面（DokusyaImportView.vue）も追従: 通常更新は`dokusya_id`列を常時チェック済み+編集不可（従来どおり）のまま、一括中止時は列グリッドを`dokusya_id`/`kumiaiin_code`の2列のみへ縮退させ、どちらも編集可能なチェックボックスにする（従来は`dokusya_id`のみに固定・`kumiaiin_code`は選択不可だった）。一括中止で両方未選択のまま送信しようとした場合はクライアント側でも「IDまたは組合員コードのいずれかを選択してください。」のトーストで即時ブロックする（BE側も同条件で最終防御）。 | | |
+| 21 | 2026/08/20 | 1.20 | Tran Duc Tuyen | 不具合修正 2026-08：紙版（`dokusya_shubetsu`≠2）のExcel取込で、電子版単独用のダミー販売店（`hanbaiten_code`=`9999999999`）を選択できてしまう不具合を修正（§4.3.1）。ダミー販売店は「配達先の販売店が無い」を意味するため、紙を配る読者に付くと増減連絡票・名簿の配達担当が誤る。`IMPORT_VALIDATION_ERROR`（field='hanbaiten_code', message='販売店コード「9999999999」は電子版専用のダミー販売店のため、紙版では選択できません。'）で拒否する。UI編集画面(SCR-011)は`BaseHanbaitenSelect`が既にダミーを候補から除外しているが、Excel取込は`hanbaiten_code`が自由入力のためこのガードが欠けていた。NEW/UPDATE両方が対象。 | | |
+| 22 | 2026/08/20 | 1.21 | Tran Duc Tuyen | 不具合修正 2026-08：購読者氏名・配達先氏名まわりの検証をUI(SCR-011)と揃えた（§4.1）。①`shimei_sei`/`shimei_mei`/`haitatsu_shimei_sei`/`haitatsu_shimei_mei`に漢字・ひらがな・カタカナ・アルファベット・数字のみ許容する書式チェックを追加（従来は最大文字数のみ）。②`shimei_sei`/`shimei_mei`/`shimei_kana_sei`/`shimei_kana_mei`をNEWモードの必須列に追加（UI側`REQUIRED_COLUMNS_NEW`は既に必須扱いだったが、BE側の行内容チェックが抜けており空欄セルでも取込めていた）。③配達先氏名4項目をNEWモードかつ紙版で配達先≠購読者情報のとき必須化（UIの`haitatsuRequired`と同条件）。④`kumiaiin_code`の最大文字数を20→10へ変更（UI`:maxlength="10"`・`screen-design.md`と統一）。 | | |
+| 23 | 2026/08/20 | 1.22 | Tran Duc Tuyen | 不具合修正 2026-08：監査ログの`operation`ラベルを`IMPORT_UPDATE_PARTIAL`→`IMPORT_UPDATE`に改称（`AuditOperation`enum。販売店Excel取込 ACSMS-SCR-019 と共通）。取込はNEW/UPDATEの2モードのみで「全列/一部列」の区別が実装されたことが無く、`_PARTIAL`表記が実態と合っていなかったため。未使用の`IMPORT_UPDATE_ALL`も削除。過去ログの表示・検索には影響しない（新規書込みのみ新ラベル）。 | | |
 
 ## システム概要
 
@@ -122,7 +126,7 @@ updated_by: Tran Duc Tuyen
 | 3  | ~~手続種類~~（**削除** v1.2）    | ~~手続種類~~               | ~~tetsuzuki_shurui~~       | -             | -    |
 | 4  | 管理支店                         | 管理支店コード             | kanri_shiten_code          | VARCHAR       | 20   |
 | 5  | 支店                             | 支店コード                 | shiten_code                | VARCHAR       | 20   |
-| 6  | 組合員コード                     | 組合員コード               | kumiaiin_code              | VARCHAR       | 20   |
+| 6  | 組合員コード                     | 組合員コード               | kumiaiin_code              | VARCHAR       | 10   |
 | 7  | 購読者苗字（漢字）               | 氏名（姓）                 | shimei_sei                 | VARCHAR       | 50   |
 | 8  | 購読者名前（漢字）               | 氏名（名）                 | shimei_mei                 | VARCHAR       | 50   |
 | 9  | 購読者苗字（かな）               | 氏名かな（姓）             | shimei_kana_sei            | VARCHAR       | 100  |
@@ -291,7 +295,7 @@ Content-Disposition: attachment; filename="購読者Excelデータ取込_テン�
 | 6   | →tetsuzuki_shurui             | Number  | -        | -    | -      | -      | 手続種類 ※m_code.code_category='TETSUZUKI_SHURUI'を参照（0:解約, 1:新規）                                                                                  |
 | 7   | →kanri_shiten_code            | String  | -        | -    | 0      | 20     | 管理支店コード。自JA内の m_kanri_shiten.kanri_shiten_code を解決し t_dokusya.kanri_shiten_id へ保存。`NEW` モードは必須。                                    |
 | 8   | →shiten_code                  | String  | -        | -    | 0      | 20     | 支店コード。自JA内の m_shiten.shiten_code を解決し t_dokusya.shiten_id へ保存。                                                                              |
-| 9   | →kumiaiin_code                | String  | -        | -    | 0      | 20     | 組合員コード。UPDATE で ID が空のときの代替キー。                                                                                                            |
+| 9   | →kumiaiin_code                | String  | -        | -    | 0      | 10     | 組合員コード。UPDATE で ID が空のときの代替キー。                                                                                                            |
 | 10  | →shimei_sei                   | String  | -        | -    | 0      | 50     | 氏名（姓・漢字）                                                                                                                                            |
 | 11  | →shimei_mei                   | String  | -        | -    | 0      | 50     | 氏名（名・漢字）                                                                                                                                            |
 | 12  | →shimei_kana_sei              | String  | -        | -    | 0      | 100    | 氏名かな（姓）                                                                                                                                              |
@@ -571,8 +575,11 @@ Content-Type: application/json
     - `dokusya_kaishi_date` / `dokusya_chushi_date` / `joho_henko_tekiyo_date`：`YYYY-MM-DD` 形式
     - `renrakusaki_1` / `renrakusaki_2`：数字のみ保存
     - `hikiotoshi_koza_meigi`：全角カナ→半角カナ変換
-    - `shimei_sei` / `shimei_mei` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei`：最大50文字（既存仕様）
-    - **`shimei_kana_sei` / `shimei_kana_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei`：全角ひらがなのみ許容、最大100文字**（不具合修正 2026-08）。半角文字・カタカナ・漢字・英数字は `VALIDATION_ERROR`（message=「ひらがなで入力してください。」）。FE の`HIRAGANA_RE`（`DokusyaFormView.vue`）と同一文字集合
+    - **`shimei_sei` / `shimei_mei` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei`：最大50文字、かつ漢字・ひらがな・カタカナ・アルファベット・数字のみ許容**（不具合修正 2026-08 — 従来は最大文字数チェックのみで書式チェックが無かった。UI(`DokusyaFormView.vue`の`KANJI_RE`)/`create-dokusya.dto.ts`の`KANJI_NAME_RE`と同一文字集合。違反時 `VALIDATION_ERROR`（message=「漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。」））
+    - **`shimei_kana_sei` / `shimei_kana_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei`：全角ひらがなのみ許容、最大100文字**（不具合修正 2026-08）。半角文字・カタカナ・漢字・英数字は `VALIDATION_ERROR`（message=「ひらがな・数字で入力してください。」）。FE の`HIRAGANA_RE`（`DokusyaFormView.vue`）と同一文字集合
+    - **`shimei_sei` / `shimei_mei` / `shimei_kana_sei` / `shimei_kana_mei`：NEW モードは必須**（不具合修正 2026-08 — UI(SCR-011)は常時必須だが、Excel取込のNEWモードはこの4項目を空欄のまま取込めていた。未指定/空欄の行は `IMPORT_VALIDATION_ERROR`（field=各列名, message=「新規登録の場合、{購読者氏名_氏 等}は必須です。」）で拒否する）
+    - **`haitatsu_shimei_sei` / `haitatsu_shimei_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei`：NEW モードかつ紙版で配達先≠購読者情報のとき必須**（不具合修正 2026-08 — UI(SCR-011)の`haitatsuRequired = !haitatsu_same_flg && !isDigitalOnly`と同条件。配達先が「購読者情報と同じ」(`haitatsu_same_flg`)は列で明示指定されればそれを、無ければ配達先7項目の入力有無から推論する。未指定/空欄の行は `IMPORT_VALIDATION_ERROR`（field=各列名, message=「新規登録の場合、{配達先苗字（漢字）等}は必須です。」）で拒否する）
+    - **`kumiaiin_code`：最大10文字**（不具合修正 2026-08 — 従来20文字だったが、UI(`DokusyaFormView.vue`の`:maxlength="10"`)・`screen-design.md`(ACSMS-SCR-011)と揃えて10文字へ変更。文字種は引き続き制限なし）
 - 業務ルールチェック（v1.4 — 共通モジュール `dokusya-shubetsu.rules.ts` に集約し UI/取込/一括置換で統一）：
   - 併読（`dokusya_shubetsu`=3）は取込不可 → エラー「購読種別が3:併読のためExcel取込みできません。」（第3システム同期のため読取専用）
   - 電子版（`dokusya_shubetsu`=2）かつクレジットカード決済（`shiharai_hoho`=6）の組み合わせは取込不可 → エラー（理由：電子版かつクレカ決済取込不可のため。読取専用）
@@ -580,7 +587,8 @@ Content-Type: application/json
   - 種別依存の適用日ルール（上記 `joho_henko_tekiyo_date` 参照）
   - **電子版の販売店コード自動解決**（v1.9・顧客要件 2026-08）：電子版は実在の販売店へ配達しないため、行の `hanbaiten_code` に何が入っていても常にログインユーザーの JA が保有するダミー販売店（`hanbaiten_code=9999999999`・`HANBAITEN_DUMMY_CODE`）へ強制解決する。当該 JA にダミー販売店が未整備の場合、行ループへ入る前に一括で `VALIDATION_ERROR`（field=hanbaiten_code, message=「電子版の取込にはダミー販売店（販売店コード:9999999999）の事前登録が必要です。販売店マスタで作成してから再度お試しください。」）を返す（§4.3.2 も参照）。ダミー販売店の運用は ACSMS-SCR-011 登録/編集・dokusya-sync バッチと同一。
   - **電子版の配達先情報12項目を強制空欄化**（v1.12・不具合修正 2026-08）：電子版(2)は配達先情報エリアが画面上非活性化される（ACSMS-SCR-011 §7.5）ため配達先情報を一切持てない。`haitatsu_same_flg` / `haitatsu_yubin_no` / `haitatsu_todofuken_code` / `haitatsu_shikuchoson` / `haitatsu_chome_banchi` / `haitatsu_tatemono_mei` / `haitatsu_renrakusaki_1` / `haitatsu_renrakusaki_2` / `haitatsu_shimei_sei` / `haitatsu_shimei_mei` / `haitatsu_shimei_kana_sei` / `haitatsu_shimei_kana_mei` の12項目は、`selected_columns` の指定や行セルの値に関わらずサーバ側で `haitatsu_same_flg=true`・残り11項目=空文字へ強制する（BE: `dokusya.mapper.ts` の `buildHaitatsuPayload`。ACSMS-SCR-011 登録/編集画面と同一のゲート）。エラーにはせず値を落とすのみ（`dokusya_busu`/`hanbaiten_code` の強制上書きと同方式）。取込列パネル（画面）も電子版選択時はこの12項目をグレー表示＋チェック解除する。
-  - **組合員コード重複時は一括誤更新／誤解約を防止**（v1.15・不具合修正 2026-08）：`UPDATE`モード（一括中止含む）で `dokusya_id` を指定しない行は `kumiaiin_code` が突合フォールバックキーになるが、同コードが同一 JA 内で2件以上ヒットする場合はどちらの読者を更新／解約したいのか一意に決まらない。この場合、行ループへ入る前に一括で `IMPORT_VALIDATION_ERROR`（field=kumiaiin_code, message=「組合員コードが重複しているため、IDを指定してください。」）を返し、DB へは一切書き込まない（`classifyImportRow`の`isAmbiguousKumiaiinKey`）。一括中止（`selected_columns`が`dokusya_id`のみ）でも同様に適用される。※`kumiaiin_code`は`dokusya_id`と同じくUPDATE時の突合キーのため、`selected_columns`に含まれていなくてもサーバ側で常に保持する（`stripUnselectedColumns`。含めないと組合員コードのみでの一括中止が常に「指定された購読者が見つかりません」で失敗する）。
+  - **通常更新は`dokusya_id`必須、一括中止は`dokusya_id`または`kumiaiin_code`のいずれか必須**（v1.19・不具合修正 2026-08）：`joho_henko_tekiyo_date` を指定する通常更新は、`dokusya_id` を指定しない行を `IMPORT_VALIDATION_ERROR`（field=dokusya_id, message=「IDは必須です。」）で拒否する — `kumiaiin_code` は同一JA内で重複しうるキーのため、通常更新のキー解決には一切フォールバックしない。一方 `dokusya_chushi_date` を指定する一括中止は、`dokusya_id` を優先し、無ければ `kumiaiin_code` にフォールバックする（従来どおり）。
+  - **組合員コード重複時は一括誤解約を防止**（v1.15・不具合修正 2026-08、v1.19で一括中止専用に限定）：一括中止で `dokusya_id` を指定しない行は `kumiaiin_code` が突合フォールバックキーになるが、同コードが同一 JA 内で2件以上ヒットする場合はどちらの読者を解約したいのか一意に決まらない。この場合、行ループへ入る前に一括で `IMPORT_VALIDATION_ERROR`（field=kumiaiin_code, message=「組合員コードが重複しているため、IDを指定してください。」）を返し、DB へは一切書き込まない（`classifyImportRow`の`isAmbiguousKumiaiinKey`。`dokusya_id`が指定されている行はこのチェック自体をスキップする）。※`kumiaiin_code`は`dokusya_id`と同じく一括中止時の突合キーのため、`selected_columns`に含まれていなくてもサーバ側で常に保持する（`stripUnselectedColumns`。含めないと組合員コードのみでの一括中止が常に「指定された購読者が見つかりません」で失敗する）。
   - **`dokusya_id`指定行の更新対象解決から`kumiaiin_code`の巻き込みを排除**（v1.17・不具合修正 2026-08）：上記ガードは`dokusya_id`未指定の行だけを対象にしていたが、実際の更新対象解決（`resolveImportTargetId`）は`WHERE dokusya_id = :id OR kumiaiin_code = :code`という**OR条件を1クエリにまとめた実装**になっており、これは「dokusya_id優先・無ければkumiaiin_codeで代替」ではなく「どちらか一致すればヒット」という別の意味になっていた。同一バッチ内で複数行が同じ`kumiaiin_code`を共有し、各行がそれぞれ異なる`dokusya_id`を明示していても、`LIMIT 1`（ORDER BY無し）は常に物理的に先頭の行を返すため、**2行とも同じ1人の購読者へ誤って書き込まれ、もう一方の購読者は一切更新されないまま**だった（`t_dokusya_rireki`に本来別々の購読者に入るはずの変更が1人分にまとめて積み上がり、データが一致しない不具合の実体）。`dokusya_id`が指定されている行は`kumiaiin_code`を一切参照せず`dokusya_id`のみで検索するよう修正（2クエリに分離）。
 - トップレベルのバリデーションエラー：HTTP 400 (`VALIDATION_ERROR`) + errors配列
 - 行レベルのバリデーションエラー：HTTP 400 (`IMPORT_VALIDATION_ERROR`) + errors配列（row番号含む。最大10件まで返却）
@@ -630,6 +638,7 @@ WHERE ja_id = :ja_id
 - 未ヒットの `hanbaiten_code`：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code', message='指定された販売店コードが見つかりません。'）
 - **電子版(`dokusya_shubetsu`=2)は行ループの前処理でこの検索対象コードが常に `9999999999`（ダミー販売店）へ差し替わる**（v1.9・顧客要件 2026-08）。当該 JA にこのコードの `m_hanbaiten` 行が存在しない場合、上記クエリより前の §4.1 で `VALIDATION_ERROR` として一括検出し、行ごとの「販売店コードが見つかりません」連発は発生させない。
 - **`haiten_flg=true`（廃店）の `hanbaiten_code` は選択不可**（v1.18・不具合修正 2026-08）：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code', message='指定された販売店コードは廃店のため選択できません。'）。廃店後も過去購読者の履歴参照のため行は削除されないので存在チェックは通るが、新規選択・販売店変更だけを弾く（tanka_codeの失効チェックと同じ設計）。修正前は取込が成功してしまい、購読者詳細画面（ACSMS-SCR-011）にも廃店・失効の旨を示す表示が無いため運用が事後に気付けなかった。
+- **紙版（`dokusya_shubetsu`≠2）は `hanbaiten_code`=`9999999999`（ダミー販売店）を選択不可**（v1.20・不具合修正 2026-08）：`IMPORT_VALIDATION_ERROR` + errors（row, field='hanbaiten_code', message='販売店コード「9999999999」は電子版専用のダミー販売店のため、紙版では選択できません。'）。ダミー販売店は電子版単独購読者の「配達先の販売店が無い」を表す受け皿であり（上記の電子版強制差替と対）、紙を配る読者に付くと増減連絡票・名簿の配達担当が誤る。UI編集画面(SCR-011)は`BaseHanbaitenSelect`が既にダミーを候補から除外しているが、Excel取込は`hanbaiten_code`が自由入力のためこのガードが欠けていた。存在チェック・廃店チェックの後段（`hanbaitenCodeSet`に含まれ`haiten_flg=false`のため両方通過する）で判定する。NEW/UPDATE両方が対象。
 
 #### 4.3.3 管理支店・支店の存在チェック
 
@@ -926,13 +935,12 @@ VALUES (1, NOW(), :account_id, :ja_id,
         :ip_address, :user_agent)
 ```
 
-- `operation`：取込モード別の prefixed ラベル（販売店取込 SCR-019 と統一・bare-verb ルールの例外）。
+- `operation`：取込モード別の prefixed ラベル（販売店取込 SCR-019 と統一・bare-verb ルールの例外）。取込は`NEW`/`UPDATE`の2モードのみ（不具合修正2026-08 — 従来`operation`に`_ALL`/`_PARTIAL`の区別があったが実装されたことが無く、実態は常に`_PARTIAL`側だったため`IMPORT_UPDATE`へ改称・`IMPORT_UPDATE_ALL`は未使用のため削除）。
   - `NEW` → `'IMPORT_NEW'`
-  - `UPDATE_ALL` → `'IMPORT_UPDATE_ALL'`
-  - `UPDATE_PARTIAL` → `'IMPORT_UPDATE_PARTIAL'`
+  - `UPDATE`（一括中止含む） → `'IMPORT_UPDATE'`
 - `before_value`：
   - `NEW` モード：空文字列
-  - `UPDATE_ALL` / `UPDATE_PARTIAL` / 一括中止：更新前データのサマリJSON `{ "rows": [{...}, ...] }`（各行の更新前状態を格納、最大100件まで）
+  - `UPDATE` / 一括中止：更新前データのサマリJSON `{ "rows": [{...}, ...] }`（各行の更新前状態を格納、最大100件まで）
 - `after_value`：取込結果サマリJSON `{ "import_mode", "total_rows", "created_count", "updated_count", "cancelled_count", "created_ids": [...], "updated_ids": [...] }`
 - パスワード等の機密情報は含めないこと。
 

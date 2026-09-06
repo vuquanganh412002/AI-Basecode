@@ -214,6 +214,12 @@ export interface ShitenDetail {
 
 /** POST /api/v1/shiten のリクエスト body。 */
 export interface CreateShitenRequest {
+  /**
+   * [staff-ja-id] NICHINO_ADMIN 代行入力 専用（顧客CR 2026-08-24 —
+   * session.ja_id が null のこのロールがフォーム上部の BaseJaDropdown で
+   * 指定する）。JA スコープのロールは省略 — BE は session.ja_id を優先する。
+   */
+  ja_id?: number;
   shiten_code: string;
   shiten_name: string;
   shiten_name_kana?: string;

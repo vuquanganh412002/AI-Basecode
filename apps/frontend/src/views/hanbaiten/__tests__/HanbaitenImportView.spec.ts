@@ -193,16 +193,16 @@ beforeEach(() => {
 });
 
 describe('HanbaitenImportView (ACSMS-SCR-019) — initial render', () => {
-  it('should render the page card with all 23 column checkboxes checked when the view first mounts', async () => {
+  it('should render the page card with all 24 column checkboxes checked when the view first mounts', async () => {
     const { wrapper } = await renderView();
     // Every JP header label appears at least once in the rendered DOM.
     const text = wrapper.text();
     for (const header of HANBAITEN_IMPORT_JP_HEADERS) {
       expect(text).toContain(header);
     }
-    // 23 column checkboxes — all checked by default per 機能 0.0.
+    // 24 column checkboxes — all checked by default per 機能 0.0.
     const colCheckboxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(colCheckboxes).toHaveLength(23);
+    expect(colCheckboxes).toHaveLength(24);
   });
 
   it('should render the 取込モード radio group with 新規登録 checked by default when the view first mounts', async () => {
@@ -338,6 +338,64 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — file selection + preview', () 
     ]);
     // Count label somewhere near the preview ("3件" / "3 rows" / etc.).
     expect(wrapper.text()).toMatch(/3/);
+  });
+
+  it('should paginate the preview table at 20 rows/page (default) instead of rendering all rows (DOM/heap safety on large files)', async () => {
+    const { wrapper } = await renderView();
+    const bigFile = Array.from({ length: 45 }, (_, i) =>
+      buildImportRow({ hanbaiten_code: `H${String(i + 1).padStart(3, '0')}` }),
+    );
+    await uploadFile(wrapper, bigFile);
+
+    const preview = wrapper.find('[data-test="preview-section"]');
+    expect(preview.exists()).toBe(true);
+    // ページ1: 既定ページサイズ20件のみ描画。
+    expect(preview.findAll('tbody tr')).toHaveLength(20);
+    expect(wrapper.text()).toContain('H001');
+    expect(wrapper.text()).not.toContain('H021');
+    // 件数バッジ・ページャの'全 N 件'表示は全件数を表示する。
+    expect(wrapper.text()).toContain('45件');
+    expect(wrapper.find('[data-test="preview-pagination"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('全 45 件');
+
+    // ページ2へ: 次の20件を描画。
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+    expect(preview.findAll('tbody tr')).toHaveLength(20);
+    expect(wrapper.text()).toContain('H021');
+    expect(wrapper.text()).not.toContain('H001');
+  });
+
+  it('should NOT show the pager when there is only 1 page of rows', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ hanbaiten_code: 'H001' }),
+      buildImportRow({ hanbaiten_code: 'H002' }),
+    ]);
+    // antd の既定は単一ページでもページャを表示するため、
+    // ページ番号ボタン('1')は出るが 次/前 への遷移は不要な状態であることのみ確認する。
+    const pager = wrapper.find('[data-test="preview-pagination"]');
+    expect(pager.exists()).toBe(true);
+    expect(pager.findAll('.ant-pagination-item').length).toBeLessThanOrEqual(1);
+  });
+
+  it('should reset the preview to page 1 when a new file is selected', async () => {
+    const { wrapper } = await renderView();
+    const bigFile = Array.from({ length: 45 }, (_, i) =>
+      buildImportRow({ hanbaiten_code: `H${String(i + 1).padStart(3, '0')}` }),
+    );
+    await uploadFile(wrapper, bigFile);
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('H021');
+
+    // 別ファイルを選び直すと1ページ目に戻る。
+    await uploadFile(
+      wrapper,
+      [buildImportRow({ hanbaiten_code: 'NEW001' })],
+      'other.xlsx',
+    );
+    expect(wrapper.text()).toContain('NEW001');
   });
 
   it('should clear the file input value on click so re-picking the same edited file fires change again', async () => {
@@ -527,11 +585,11 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — 取込モード radios', () =>
     const selectAll = wrapper.find('[data-test="select-all-checkbox"]');
     expect((selectAll.element as HTMLInputElement).disabled).toBe(false);
 
-    // すべて選択 ON → 全23列がチェックされる（＝全列更新）。
+    // すべて選択 ON → 全24列がチェックされる（＝全列更新）。
     await selectAll.setValue(true);
     await flushPromises();
     const allCols = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(allCols).toHaveLength(23);
+    expect(allCols).toHaveLength(24);
     for (const cb of allCols) {
       expect((cb.element as HTMLInputElement).checked).toBe(true);
     }
@@ -612,6 +670,45 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — submit + confirm modal', () =>
     expect(Array.isArray(body.selected_columns)).toBe(true);
     // hanbaiten_code MUST always appear in selected_columns.
     expect((body.selected_columns as string[])).toContain('hanbaiten_code');
+  });
+
+  // 顧客CR 2026-08-24 — 都道府県コードが取込にも任意列として追加。
+  it('should include todofuken_code in the request payload when the Excel row has a value', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [
+      buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '27' }),
+    ]);
+    vi.mocked(importHanbaitenExcel).mockResolvedValue(
+      buildImportSuccessResponse() as any,
+    );
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as unknown as Record<
+      string,
+      unknown
+    >;
+    expect((body.selected_columns as string[])).toContain('todofuken_code');
+    expect((body.rows as Array<Record<string, unknown>>)[0].todofuken_code).toBe('27');
+  });
+
+  it('should allow unchecking 都道府県コード (optional column, not locked in either mode)', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [buildImportRow({ hanbaiten_code: 'H001' })]);
+    const checkbox = wrapper.find(
+      'input[type="checkbox"][value="todofuken_code"]',
+    );
+    expect((checkbox.element as HTMLInputElement).disabled).toBe(false);
+    await checkbox.setValue(false);
+    vi.mocked(importHanbaitenExcel).mockResolvedValue(
+      buildImportSuccessResponse() as any,
+    );
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    const body = vi.mocked(importHanbaitenExcel).mock.calls[0][0] as unknown as Record<
+      string,
+      unknown
+    >;
+    expect((body.selected_columns as string[])).not.toContain('todofuken_code');
   });
 
   it('should NOT call importHanbaitenExcel when the user cancels the confirmation dialog', async () => {
@@ -764,10 +861,9 @@ describe('HanbaitenImportView (ACSMS-SCR-019) — error paths', () => {
     expect(text).toContain('3行目');
     expect(text).toContain('委託区分'); // itaku_kubun → JP label
     expect(text).toContain('同一の販売店コードが既に登録されています。');
-    // A short summary toast points the user to the panel.
-    expect(vi.mocked(message.error)).toHaveBeenCalledWith(
-      '取込に失敗しました。2件のエラーがあります。',
-    );
+    // 不具合修正2026-08 — パネルと二重表示になっていた要約トーストは廃止。
+    // 購読者Excel取込(SCR-016)と同じくパネルのみで表示する。
+    expect(vi.mocked(message.error)).not.toHaveBeenCalled();
   });
 
   it('should clear the error panel when a new file is selected after a failed import', async () => {

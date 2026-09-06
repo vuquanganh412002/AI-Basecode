@@ -26,8 +26,8 @@ import {
   type RoleDropdownItem,
 } from '@/api/roles/roles';
 import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { DROPDOWN_MAX_PAGE_SIZE } from '@/constants/pagination';
-import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
@@ -105,9 +105,8 @@ const submitting = ref(false);
 
 // ─── ドロップダウン状態 ───────────────────────────────────────────────
 const roleOptions = ref<RoleDropdownItem[]>([]);
-// 都道府県の候補取得・保持は <BaseTodofukenSelect>（useTodofuken の共有
-// キャッシュ）に任せる。
-const jaOptions = ref<JaDropdownItem[]>([]);
+// 都道府県・JA の候補取得・保持はそれぞれ <BaseTodofukenSelect>（useTodofuken
+// の共有キャッシュ）・<BaseJaDropdown>（useEntityDropdown）に任せる。
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
 const shitenOptions = ref<ShitenDropdownItem[]>([]);
 
@@ -156,19 +155,6 @@ async function fetchRoleOptions(): Promise<void> {
   }
 }
 
-async function fetchJaOptions(todofukenCode: string, roleId: number | null): Promise<void> {
-  try {
-    const resp = await getJaDropdown({
-      todofuken_code: todofukenCode,
-      role_id: roleId ?? undefined,
-      per_page: DROPDOWN_MAX_PAGE_SIZE,
-    });
-    jaOptions.value = resp.data;
-  } catch {
-    jaOptions.value = [];
-  }
-}
-
 async function fetchKanriShitenOptions(jaId: number): Promise<void> {
   try {
     const resp = await getKanriShitenDropdown(jaId);
@@ -187,6 +173,9 @@ async function fetchShitenOptions(
     const resp = await getShitenDropdown({
       kanri_shiten_id: kanriShitenId,
       ja_id: jaId ?? undefined,
+      // 所属支店は口座振替の金融機関支店ではなく通常の支店を選ぶ欄のため、
+      // 金融機関支店(kinyu_shiten_flg=true)を除外する（顧客要件2026-08）。
+      kinyu_shiten_flg: false,
       per_page: DROPDOWN_MAX_PAGE_SIZE,
     });
     shitenOptions.value = resp.data;
@@ -235,10 +224,9 @@ onMounted(async () => {
       const resp = await getAccount(accountId.value);
       hydrateFromDetail(resp.data);
       // hydrate 後、事前入力の選択が正しく描画されるよう cascade dropdown を
-      // 順に読み込む。
-      if (resp.data.todofuken_code) {
-        void fetchJaOptions(resp.data.todofuken_code, resp.data.role_id);
-      }
+      // 順に読み込む。JA は BaseJaDropdown が selected(ja_id) の変化を見て
+      // 自前で include_id 付き取得する（useEntityDropdown）ため、ここでの
+      // 明示的な事前取得は不要。
       if (resp.data.ja_id) {
         void fetchKanriShitenOptions(resp.data.ja_id);
       }
@@ -266,16 +254,13 @@ watch(
     if (isHydrating.value) return;
     if (next === prev) return;
     // 新 todofuken の JA 一覧が届いたとき古い値が漏れないよう下流の選択をリセット。
+    // JA の候補一覧自体は BaseJaDropdown が :todofuken-code の変化を見て
+    // 自前で再取得する（resetTriggers）ため、ここでは選択値のリセットのみ行う。
     formState.ja_id = null;
     formState.kanri_shiten_id = null;
     formState.shiten_id = null;
     kanriShitenOptions.value = [];
     shitenOptions.value = [];
-    if (next) {
-      void fetchJaOptions(next, formState.role_id);
-    } else {
-      jaOptions.value = [];
-    }
   },
 );
 
@@ -635,20 +620,13 @@ defineExpose({ formState, fieldErrors });
                 <span>JA名</span>
                 <span v-if="showJa" class="text-error ml-1">*</span>
               </template>
-              <a-select
+              <BaseJaDropdown
                 v-model:value="formState.ja_id"
                 placeholder="選択してください"
-                allow-clear
+                :todofuken-code="formState.todofuken_code"
+                :role-id="formState.role_id"
                 :disabled="!showJa || !formState.todofuken_code"
-              >
-                <a-select-option
-                  v-for="opt in jaOptions"
-                  :key="opt.ja_id"
-                  :value="opt.ja_id"
-                >
-                  {{ opt.ja_name }}
-                </a-select-option>
-              </a-select>
+              />
             </a-form-item>
 
             <a-form-item
@@ -796,12 +774,23 @@ defineExpose({ formState, fieldErrors });
 
           <!-- 編集専用: admin はここでアカウントのロックを解除できる。
                account_lock_flg=false 送信で BE が login_failure_count → 0 に
-               リセットし即再ログイン可。作成モードでは非表示（新規は未ロック）。 -->
-          <a-form-item v-if="isEdit" label="ロック状態">
-            <!-- QA バグ 2026-05 — checkbox ラベルが既に「ロック」と表示するため
-                 右に出していた赤い ロック pill は重複だった。ロック状態は
-                 checkbox の checked 状態のみで伝える。 -->
-            <a-checkbox name="account_lock_flg" v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
+               リセットし即再ログイン可。作成モードでは非表示（新規は未ロック）。
+               `label` プロパティは使わない — a-checkbox は <a-form-item> の
+               `for` が単一 input へ正しく届かず「ラベルが未紐付け」の a11y
+               エラーになるため、取扱い区分と同じ <fieldset>+<legend> で命名
+               する（vue.md §1a）。 -->
+          <a-form-item v-if="isEdit">
+            <fieldset class="border-0 p-0 m-0 min-w-0">
+              <legend class="!flex !items-center box-content !m-0 !mb-2 !p-0 !border-0 !h-[22px] !text-sm !leading-[22px] !text-text-main">
+                ロック状態
+              </legend>
+              <div class="flex items-center min-h-8">
+                <!-- QA バグ 2026-05 — checkbox ラベルが既に「ロック」と表示するため
+                     右に出していた赤い ロック pill は重複だった。ロック状態は
+                     checkbox の checked 状態のみで伝える。 -->
+                <a-checkbox name="account_lock_flg" v-model:checked="formState.account_lock_flg">ロック</a-checkbox>
+              </div>
+            </fieldset>
           </a-form-item>
         </div>
 

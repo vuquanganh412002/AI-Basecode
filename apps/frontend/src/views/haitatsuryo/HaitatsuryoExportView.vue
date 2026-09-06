@@ -97,9 +97,11 @@ const perPage = ref(20);
 // ラベル変換が必要な列は #bodyCell で処理する。
 const columns: TableColumnsType = [
   { title: '対象月', dataIndex: 'target_month', key: 'target_month', width: 90 },
+  { title: '委託区分', dataIndex: 'itaku_kubun', key: 'itaku_kubun', width: 100 },
   { title: '販売店コード', dataIndex: 'hanbaiten_code', key: 'hanbaiten_code', width: 120 },
   { title: '販売店名', dataIndex: 'hanbaiten_name', key: 'hanbaiten_name', width: 180 },
   { title: '当月部数', dataIndex: 'total_busu', key: 'total_busu', align: 'right', width: 100 },
+  { title: '単価', dataIndex: 'tesuryo', key: 'tesuryo', align: 'right', width: 100 },
   { title: '当月金額', dataIndex: 'total_kingaku', key: 'total_kingaku', align: 'right', width: 120 },
   { title: '支払サイクル', dataIndex: 'haitatsuryo_shiharai_cycle', key: 'haitatsuryo_shiharai_cycle', align: 'center', width: 110 },
   { title: '金融機関コード', dataIndex: 'bank_code', key: 'bank_code', width: 120 },
@@ -361,8 +363,18 @@ defineExpose({
         <template v-if="column.key === 'hanbaiten_code'">
           {{ (record as HaitatsuryoRow).hanbaiten_code }}
         </template>
+        <template v-else-if="column.key === 'itaku_kubun'">
+          {{
+            (record as HaitatsuryoRow).itaku_kubun == null
+              ? ''
+              : codes.label('ITAKU_KUBUN', (record as HaitatsuryoRow).itaku_kubun as number)
+          }}
+        </template>
         <template v-else-if="column.key === 'total_busu'">
           {{ formatNumber((record as HaitatsuryoRow).total_busu) }}
+        </template>
+        <template v-else-if="column.key === 'tesuryo'">
+          {{ formatYen((record as HaitatsuryoRow).tesuryo) }}
         </template>
         <template v-else-if="column.key === 'total_kingaku'">
           {{ formatYen((record as HaitatsuryoRow).total_kingaku) }}
@@ -394,14 +406,15 @@ defineExpose({
       <template #summary>
         <a-table-summary fixed>
           <a-table-summary-row class="bg-surface-card-subtle font-semibold">
-            <a-table-summary-cell :index="0" :col-span="3" align="center">合計</a-table-summary-cell>
-            <a-table-summary-cell :index="3" align="right">
+            <a-table-summary-cell :index="0" :col-span="4" align="center">合計</a-table-summary-cell>
+            <a-table-summary-cell :index="4" align="right">
               {{ formatNumber(previewData?.meta.grand_total_busu ?? 0) }}
             </a-table-summary-cell>
-            <a-table-summary-cell :index="4" align="right">
+            <a-table-summary-cell :index="5" />
+            <a-table-summary-cell :index="6" align="right">
               {{ formatYen(previewData?.meta.grand_total_kingaku ?? 0) }}
             </a-table-summary-cell>
-            <a-table-summary-cell :index="5" :col-span="10" />
+            <a-table-summary-cell :index="7" :col-span="10" />
           </a-table-summary-row>
         </a-table-summary>
       </template>

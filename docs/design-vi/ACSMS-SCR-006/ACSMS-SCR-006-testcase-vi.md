@@ -66,14 +66,15 @@ Tài liệu này mô tả chi tiết test specification cho "Màn hình tìm ki�
 
 # カテゴリ 1: Kiểm soát quyền truy cập (Access Control)
 
-## ACSMS-TC-006-001 — Cấm NICHINO_ADMIN truy cập màn hình tìm kiếm chi tiết Master Chi nhánh
+## ACSMS-TC-006-001 — Cho phép NICHINO_ADMIN truy cập màn hình tìm kiếm chi tiết Master Chi nhánh (toàn bộ JA)
 
 - 観点ID: VP-A-01
-- 種類: Abnormal (異常)
+- 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Không có quyền `shiten.view`
+  - ・Có quyền `shiten.view` (cấp chính thức theo CR khách hàng 2026-08-24, migration `1787385200000-GrantShitenAllToNichinoAdmin`)
+  - ・session.ja_id là null (NICHINO_ADMIN không thuộc JA nào)
 
 ### 手順
 
@@ -87,25 +88,25 @@ Truy cập trực tiếp URL `/shiten`
 Dùng DevTools gọi trực tiếp GET `/api/v1/shiten`
 
 ステップ4：
-Kiểm tra DB: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 'm_shiten' ORDER BY log_datetime DESC LIMIT 1`
+Kiểm tra danh sách khi dữ liệu chi nhánh của nhiều JA khác nhau cùng tồn tại
 
 ### 期待結果
 
 ステップ1：
-Item "支店マスタ" không được hiển thị trên sidebar (do không có quyền `shiten.view`)
+Item "支店マスタ" được hiển thị trên sidebar (do có quyền `shiten.view`)
 
 ステップ2：
-Hiển thị toast `アクセス権がありません。` + chuyển về `/dashboard`
+Màn hình danh sách `/shiten` hiển thị bình thường (không bị redirect về `/dashboard`)
 
 ステップ3：
-Trả về HTTP 403 (`error_code: FORBIDDEN`, message `この画面へのアクセス権限がありません。`)
+Trả về HTTP 200, `data` chứa danh sách chi nhánh
 
 ステップ4：
-Có ≥1 dòng error log được ghi, `account_id` khớp với test account
+Do session.ja_id là null nên DataScope filter không áp dụng (`applyBranchScope` bypass khi `session.ja_id == null`) — trả về chi nhánh của TẤT CẢ JA. Riêng dropdown filter "管理支店" vẫn rỗng vì API scope theo 1 JA duy nhất (`GET /api/v1/kanri-shiten/dropdown` yêu cầu `ja_id`) — dùng 4 filter còn lại (支店コード／支店名／データ送信取扱店舗コード／金融機関支店フラグ) để thu hẹp kết quả.
 
 補足：
-・Cả 3 tầng FE menu / FE router guard / BE API guard đều block truy cập
-・Không phát sinh thay đổi đối với `m_shiten`
+・Cả 3 tầng FE menu / FE router guard / BE API guard đều cho phép truy cập nhất quán
+・NICHINO_STAFF không thuộc phạm vi CR này — vẫn không có `shiten.view`, vẫn bị cấm truy cập như ACSMS-TC-006-002
 
 ### テスト結果（1回目）
 
@@ -129,7 +130,7 @@ Có ≥1 dòng error log được ghi, `account_id` khớp với test account
 
 ### 備考
 
-Theo ma trận quyền tại `docs/database/seeder.md §3`, `shiten.view` chỉ được cấp cho CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN; NICHINO_ADMIN không có quyền truy cập Master Chi nhánh.
+Theo ma trận quyền tại `docs/database/seeder.md §3`, `shiten.view` được cấp cho CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN, và kể từ CR khách hàng 2026-08-24 còn được cấp thêm cho NICHINO_ADMIN (role_permission_id 116-119). Hành vi cũ (cấm truy cập) xem lịch sử git tại `docs/requirement/account_concept.md` §198.
 
 ## ACSMS-TC-006-002 — Cấm NICHINO_STAFF truy cập màn hình tìm kiếm chi tiết Master Chi nhánh
 

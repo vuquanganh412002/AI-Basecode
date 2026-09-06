@@ -9,8 +9,8 @@ format_version: "1.0"
 issue_date: 2026-04-16
 created_date: 2026/04/16
 created_by: Dao Van Thang
-updated_date: 2026/05/18
-updated_by: Dao Van Thang
+updated_date: 2026/08/24
+updated_by: Tran Duc Tuyen
 ---
 
 ## 変更履歴
@@ -19,6 +19,7 @@ updated_by: Dao Van Thang
 | --- | ---------- | ---- | -------------- | ---------------------- | -------------- | -------------- |
 | 1   | 2026/04/16 | 1.0  | Dao Van Thang | 初版作成               | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/18 | 1.2  | Dao Van Thang | 画面設計書 v1.2 対応：都道府県（todofuken_code）の追加（リクエスト・レスポンス）、委託区分=1（振込）の場合 No.17～No.23 必須化を明示、その他項目（No.14, 15, 17～22）の整合 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/08/24 | 1.3  | Tran Duc Tuyen | 顧客CR：都道府県（todofuken_code）を JA 追従の read-only から自由選択に変更（初期値は JA の都道府県のまま）。それに伴い必須項目化（登録・更新とも） | Nguyen Huy Dat | Nguyen Huy Dat |
 
 ## システム概要
 
@@ -273,7 +274,7 @@ WHERE hanbaiten_id = :hanbaiten_id
 | 2   | hanbaiten_code           | String | -        | 〇   | 1      | 10     | 販売店コード                             |
 | 3   | hanbaiten_name           | String | -        | 〇   | 1      | 100    | 販売店名                                 |
 | 4   | hanbaiten_name_kana      | String | -        | -    | 1      | 100    | 販売店名（カナ）                         |
-| 5   | todofuken_code           | String | -        | -    | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
+| 5   | todofuken_code           | String | -        | 〇   | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
 | 6   | torihikisaki_no          | String | -        | -    | 1      | 20     | 適格請求書発行事業者番号                 |
 | 7   | yubin_no                 | String | -        | -    | 1      | 7      | 郵便番号                                 |
 | 8   | address                  | String | -        | -    | 1      | 200    | 住所                                     |
@@ -666,7 +667,7 @@ VALUES (3, NOW(), :account_id, :ja_id,
 | 1   | hanbaiten_id             | Number | -        | 〇   |        |        | 更新対象の hanbaiten_id（パスパラメータ） |
 | 2   | hanbaiten_name           | String | -        | 〇   | 1      | 100    | 販売店名                                 |
 | 3   | hanbaiten_name_kana      | String | -        | -    | 1      | 100    | 販売店名（カナ）                         |
-| 4   | todofuken_code           | String | -        | -    | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
+| 4   | todofuken_code           | String | -        | 〇   | 2      | 2      | 都道府県コード（m_todofuken.todofuken_code を参照。プルダウンは ACSMS-API-COMMON-001 を参照） |
 | 5   | torihikisaki_no          | String | -        | -    | 1      | 20     | 適格請求書発行事業者番号                 |
 | 6   | yubin_no                 | String | -        | -    | 1      | 7      | 郵便番号                                 |
 | 7   | address                  | String | -        | -    | 1      | 200    | 住所                                     |

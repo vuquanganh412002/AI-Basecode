@@ -6,7 +6,7 @@ Cloud Subscriber Management System (クラウド版購読者管理システム) 
 
 - Backend: NestJS + TypeORM + PostgreSQL
 - Frontend: Vue 3 + Ant Design Vue + Tailwind CSS
-- Auth: HTTP-only Cookie session (Redis-backed, 24h sliding TTL), RBAC (model.action permissions), DataScope, field-level restrictions
+- Auth: HTTP-only Cookie session (Redis-backed, absolute 24h TTL — activity does NOT extend it), RBAC (model.action permissions), DataScope, field-level restrictions
 - Infra: AWS (ECS Fargate, RDS, S3, CloudFront), Terraform
 - CI/CD: GitLab CI/CD
 
@@ -37,6 +37,7 @@ All rules in `.claude/rules/` are **mandatory**:
 - `/gen-code-backend ACSMS-SCR-XXX` — Generate NestJS source (entity/DTO/service/controller/module) that satisfies `gen-ut-backend` specs. One-shot; removes `@ts-nocheck` banner after `tsc --noEmit` passes.
 - `/gen-code-frontend ACSMS-SCR-XXX` — Generate Vue 3 source (types/store/view + router entry) that satisfies `gen-ut-frontend` specs. One-shot; removes `@ts-nocheck` banner after `vue-tsc --noEmit` passes.
 - `/scaffold [project_name]` — Scaffold production-ready fullstack monorepo (NestJS + Vue 3 + Docker)
+- `/sync-design-xlsx ACSMS-SCR-XXX [種別] [vX.Y]` — Re-check a screen against its code and write the corrections into the customer's 画面設計書 `.xlsx` using the VTI review markup (strike + dark cyan `#45818E` + `{M/D} VTI追記` in column A). Ships openpyxl helpers that preserve column widths, merges and embedded images.
 
 ### TDD Pipeline
 

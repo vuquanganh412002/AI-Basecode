@@ -69,6 +69,7 @@ describe('ReportController (HTTP) — 増減通知（日本農業新聞） (SCR-
     service = {
       previewZougenNichino: jest.fn(),
       exportZougenNichinoPdf: jest.fn(),
+      exportZougenNichinoExcel: jest.fn(),
     };
     currentSession = buildChuokaiSession({
       ja_id: 1,
@@ -262,6 +263,75 @@ describe('ReportController (HTTP) — 増減通知（日本農業新聞） (SCR-
       service.exportZougenNichinoPdf.mockRejectedValue(new Error('pdf-down'));
       const res = await http()
         .post(apiUrl('report/zougen-nichino/export'))
+        .send({ tekiyo_date: '2026-03-01', kanri_shiten_id: [20] })
+        .expect(500);
+      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ─── POST /api/v1/report/zougen-nichino/export-excel（顧客要件2026-08-26）──
+  describe('POST /api/v1/report/zougen-nichino/export-excel', () => {
+    it('should return 200 application/json { file_name, recipient_count } (NO attachment) on success', async () => {
+      // Excelはブラウザへ返さず S3 保存 + メール通知。Content-Disposition は付与しない。
+      service.exportZougenNichinoExcel.mockResolvedValue({
+        empty: false,
+        fileName: '増減通知_2026年03月01日_20260301120000.xlsx',
+        recipientCount: 3,
+      });
+
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
+        .send({ tekiyo_date: '2026-03-01', kanri_shiten_id: [20] })
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.headers['content-disposition']).toBeUndefined();
+      expect(res.body.data).toEqual({
+        file_name: '増減通知_2026年03月01日_20260301120000.xlsx',
+        recipient_count: 3,
+      });
+    });
+
+    it('should return 400 VALIDATION_ERROR when tekiyo_date is missing', async () => {
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
+        .send({ kanri_shiten_id: [20] })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+      currentSession = null;
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
+        .send({ tekiyo_date: '2026-03-01' })
+        .expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when user lacks report.export_zougen_nichino', async () => {
+      currentPermissions = [];
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
+        .send({ tekiyo_date: '2026-03-01' })
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 200 application/json with empty reports (NOT 404) when service reports no matching data', async () => {
+      service.exportZougenNichinoExcel.mockResolvedValue({ empty: true });
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
+        .send({ tekiyo_date: '2026-03-01' })
+        .expect(200);
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.body.data.reports).toEqual([]);
+    });
+
+    it('should return 500 INTERNAL_SERVER_ERROR when export throws an unexpected error', async () => {
+      service.exportZougenNichinoExcel.mockRejectedValue(new Error('excel-down'));
+      const res = await http()
+        .post(apiUrl('report/zougen-nichino/export-excel'))
         .send({ tekiyo_date: '2026-03-01', kanri_shiten_id: [20] })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');

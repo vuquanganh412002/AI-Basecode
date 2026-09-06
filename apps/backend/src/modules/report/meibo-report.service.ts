@@ -1,4 +1,5 @@
 import { DENSHI_DOKUSYA_SHUBETSU_YURYO } from '@/common/constants/denshi-dokusya-shubetsu.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
@@ -44,7 +45,6 @@ import {
   type MeiboRawRow,
 } from './report.mapper';
 
-const SCREEN_NAME = '購読者名簿出力画面 (ACSMS-SCR-026)';
 const TABLE_NAME = 't_dokusya_rireki';
 
 const XLSX_MIME =
@@ -182,7 +182,7 @@ export class MeiboReportService {
       // は log_type=3 をトランザクション外で記録する（4.7）。
       if (err instanceof ReportNoDataException) throw err;
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_026, TABLE_NAME, null),
         AuditOperation.EXPORT,
         err as Error,
       );

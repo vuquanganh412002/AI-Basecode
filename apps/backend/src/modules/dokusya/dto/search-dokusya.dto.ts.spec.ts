@@ -55,6 +55,7 @@ describe('SearchDokusyaDto', () => {
         joho_henko_tekiyo_date_from: '2024/01/01',
         joho_henko_tekiyo_date_to: '2024/12/31',
         shiharai_hoho: 1,
+        dokusyaso_bunrui: '1',
         page: 1,
         per_page: 20,
         sort_by: 'updated_at',
@@ -316,6 +317,39 @@ describe('SearchDokusyaDto', () => {
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'shiharai_hoho')).toBe(true);
+  });
+
+  // ─── dokusyaso_bunrui (String code, 顧客CR 2026-08-24) ───────────────────
+  it('should pass when dokusyaso_bunrui is in {0,1,2,3,999}', async () => {
+    for (const v of ['0', '1', '2', '3', '999']) {
+      const dto = plainToInstance(
+        SearchDokusyaDto,
+        buildSearchDokusyaQuery({ dokusyaso_bunrui: v }),
+      );
+      const errors = await validate(dto);
+      expect(errors.some((e) => e.property === 'dokusyaso_bunrui')).toBe(
+        false,
+      );
+    }
+  });
+
+  it('should fail when dokusyaso_bunrui is not a defined code', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({ dokusyaso_bunrui: '4' }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusyaso_bunrui')).toBe(true);
+  });
+
+  it('should treat dokusyaso_bunrui="" as unset (blankToUndef)', async () => {
+    const dto = plainToInstance(
+      SearchDokusyaDto,
+      buildSearchDokusyaQuery({ dokusyaso_bunrui: '' }),
+    );
+    const errors = await validate(dto);
+    expect(errors.some((e) => e.property === 'dokusyaso_bunrui')).toBe(false);
+    expect(dto.dokusyaso_bunrui).toBeUndefined();
   });
 
   // ─── tetsuzuki_shurui (Number, 0-1) ─────────────────────────────────────

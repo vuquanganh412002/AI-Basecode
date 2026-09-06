@@ -49,6 +49,8 @@ import {
   nowTokyo,
 } from '@/utils/datetime';
 import { downloadBlob } from '@/utils/download';
+import BaseImportErrorPanel from '@/components/common/BaseImportErrorPanel.vue';
+import BaseImportPreviewTable from '@/components/common/BaseImportPreviewTable.vue';
 
 // FE radio display value → BE wire value。取込モードは 新規登録 / 更新 の2択。
 // 更新は選択列のみ更新（空欄スキップ）。全列更新は「すべて選択」でチェックする。
@@ -80,6 +82,18 @@ const codes = useCodesStore();
 const notify = useNotify();
 const canImport = computed(() => authStore.hasPermission('dokusya.import'));
 
+// 購読種別ラジオの活性制御（不具合修正2026-08）。DokusyaFormView.vue の
+// canPaper/canDenshi/isShubetsuAllowed と同じ規則 — アカウントに無い方の
+// 購読種別フラグに対応するラジオは非活性にする（画面登録と同じ UX）。
+// BE 側の境界は DokusyaAccountFlagService.assertShubetsuFlag（行単位）。
+const canPaper = computed(() => !!authStore.user?.paper_flg);
+const canDenshi = computed(() => !!authStore.user?.denshi_flg);
+function isShubetsuAllowed(shubetsu: number): boolean {
+  if (shubetsu === DokusyaShubetsu.PAPER) return canPaper.value;
+  if (shubetsu === DokusyaShubetsu.DIGITAL) return canDenshi.value;
+  return false;
+}
+
 // ─── フォーム状態 ──────────────────────────────────────────────────────
 
 const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
@@ -88,6 +102,12 @@ const importModeFe = ref<keyof typeof MODE_TO_BE>('new');
 // し、電子版クレカ禁止 / 電子版メール必須 等のルール判定に使う（顧客要件 2026-07:
 // 取込を紙版/電子版の2モードに分離。3:併読はラジオに出さず取込不可）。
 const dokusyaShubetsuFe = ref<number>(DokusyaShubetsu.PAPER);
+// 既定の 紙版(1) が非活性オプションにならないようにする（不具合修正2026-08・
+// DokusyaFormView.vue の同名ロジックと同じ規則）。denshi_flg のみのアカウントは
+// 既定を 電子版(2) に切替える。両方/紙版のみ/フラグ無しは既定のまま。
+if (!canPaper.value && canDenshi.value) {
+  dokusyaShubetsuFe.value = DokusyaShubetsu.DIGITAL;
+}
 
 // ラベルは m_code(DOKUSYA_SHUBETSU) から取得（ハードコード禁止・vue.md §m_code）。
 // 紙版(1)・電子版(2) のみ（併読(3) は取込対象外）。
@@ -225,10 +245,14 @@ const fileName = ref<string>('');
 const submitting = ref(false);
 const panelCollapsed = ref(false);
 
-/** IMPORT_VALIDATION_ERROR 由来の行単位エラー（最大10件）。 */
+/**
+ * IMPORT_VALIDATION_ERROR 由来の行単位エラー（最大10件）。`field` は
+ * 書込み段の失敗（不具合修正2026-08・電子版のみ）では無いため任意にする —
+ * BaseImportErrorPanel 側も同様に任意対応済み。
+ */
 interface RowError {
   row: number;
-  field: string;
+  field?: string;
   message: string;
 }
 const rowErrors = ref<RowError[]>([]);
@@ -239,6 +263,8 @@ const importResult = ref<{
   updated_count: number;
   cancelled_count: number;
   skipped_count: number;
+  /** 書込み段で失敗した行数（電子版のみ発生しうる・不具合修正2026-08）。 */
+  failed_count: number;
   rireki_count: number;
   total_rows: number;
 } | null>(null);
@@ -256,7 +282,13 @@ const isDigitalBatchSelected = computed(() =>
 /**
  * 強制チェック＋disable（forced ON）になる列か:
  *   - 新規登録 (NEW)   → 必須列を lock。
- *   - 更新 (UPDATE)    → キー列 (dokusya_id) のみ lock。他は任意選択。
+ *   - 通常更新 (UPDATE，中止日未入力) → キー列 (dokusya_id) のみ lock。
+ *     組合員コードは重複しうるキーのため、通常更新の突合キーには使わない
+ *     （不具合修正2026-08）— dokusya_id は必須、他は任意選択。
+ *   - 一括中止 (中止日入力済み)       → dokusya_id / kumiaiin_code の
+ *     どちらも lock しない（isForcedUnchecked が他列を縮退させつつ、
+ *     この2列だけは任意のチェックボックスとして残す。どちらか一方の
+ *     選択を必須にする検証は validateBeforeSubmit 側で行う）。
  */
 function isLocked(col: PhysicalColumn): boolean {
   if (importModeFe.value === 'new') {
@@ -270,7 +302,8 @@ function isLocked(col: PhysicalColumn): boolean {
     }
     return REQUIRED_SET.has(col);
   }
-  // 更新: キー列のみ lock（更新対象の突合キー）。
+  if (isBulkStop.value) return false;
+  // 通常更新: キー列のみ lock（更新対象の突合キー）。
   return col === KEY_COLUMN;
 }
 
@@ -302,9 +335,10 @@ function isForcedUnchecked(col: PhysicalColumn): boolean {
     // （不具合修正2026-08）。
     return col === KEY_COLUMN;
   }
-  // 一括中止は「解約予約を入れる」だけの操作。キー以外の列は書かないので、
-  // 中止日を入れた時点で列グリッドをキー列だけに縮退させる。
-  if (isBulkStop.value) return col !== KEY_COLUMN;
+  // 一括中止は「解約予約を入れる」だけの操作。対象特定に使う列（dokusya_id /
+  // kumiaiin_code のいずれか必須・不具合修正2026-08）以外は書かないので、
+  // 中止日を入れた時点で列グリッドをこの2列だけに縮退させる。
+  if (isBulkStop.value) return col !== KEY_COLUMN && col !== 'kumiaiin_code';
   // 紙版 × 適用日=当日: 帳票影響項目は当日反映できない（予約変更＝未来日が要る）。
   // BE も同ルールで弾くが、選べてから弾かれるより選べない方が分かりやすい。
   if (reportColumnsLocked.value && REPORT_IMPACT_SET.has(col)) return true;
@@ -322,13 +356,8 @@ const previewColumns = computed<PhysicalColumn[]>(() =>
   PHYSICAL_COLUMNS.filter((col) => selected[col]),
 );
 
-/**
- * プレビューテーブルが実際に描画する行。大きなファイル（最大5000行）で
- * DOM / heap が膨れないよう上限を設ける。全件は件数バッジ・検証・送信のため
- * parsedRows に保持する。
- */
-const PREVIEW_ROW_CAP = 100;
-const previewRows = computed(() => parsedRows.value.slice(0, PREVIEW_ROW_CAP));
+/** プレビュー表（BaseImportPreviewTable）への参照 — 新規ファイル選択時にページをリセットする。 */
+const previewTableRef = ref<{ resetPage: () => void } | null>(null);
 
 /**
  * すべて選択／解除 チェックボックスにバインド。
@@ -382,6 +411,13 @@ watch([chushiDateFe, johoDateFe, dokusyaShubetsuFe], () => {
     if (isLocked(col)) selected[col] = true;
     else if (isForcedUnchecked(col)) selected[col] = false;
   }
+  // 一括中止に入った時点でどちらのキーも未選択なら、従来どおり ID を既定で
+  // チェックしておく（不具合修正2026-08 — dokusya_id/kumiaiin_code とも
+  // isLocked していないため、ここで明示的に既定値を与えないと縮退直後に
+  // 両方未チェックのまま送信不可になる）。
+  if (isBulkStop.value && !selected.dokusya_id && !selected.kumiaiin_code) {
+    selected.dokusya_id = true;
+  }
 });
 
 // 排他: 片方に入力したら他方をクリアする（BE も両方指定を 400 で弾く）。
@@ -408,6 +444,7 @@ function isExcelFileName(name: string): boolean {
 function rejectInvalidFile(): void {
   message.error(MSG_016_001);
   parsedRows.value = [];
+  previewTableRef.value?.resetPage();
   fileName.value = '';
   rowErrors.value = [];
   resetFileInput();
@@ -463,6 +500,8 @@ async function onFileChange(event: Event): Promise<void> {
       }
       return out;
     });
+    // 新規ファイルは常に1ページ目から表示する。
+    previewTableRef.value?.resetPage();
   } catch {
     rejectInvalidFile();
   }
@@ -511,6 +550,12 @@ function validateBeforeSubmit(): string | null {
       parsedRows.value.length > MAX_DIGITAL_BULK_STOP_ROWS
     ) {
       return `電子版の一括中止は${MAX_DIGITAL_BULK_STOP_ROWS}件までです。ファイルを分割してください。`;
+    }
+    // 一括中止は対象特定に ID または 組合員コード のいずれかが必須（不具合修正
+    // 2026-08）。組合員コードは重複しうるため、複数件ヒットした場合は BE 側で
+    // 行エラーになる（isAmbiguousKumiaiinKey）— ここでは「どちらも未選択」だけを弾く。
+    if (isBulkStop.value && !selected.dokusya_id && !selected.kumiaiin_code) {
+      return 'IDまたは組合員コードのいずれかを選択してください。';
     }
   }
 
@@ -660,13 +705,23 @@ async function runImport(): Promise<void> {
       rows,
     };
     const res = await importDokusyaExcel(body);
-    notify.success(res.message || MSG_016_004);
+    const failedCount = res.data?.failed_count ?? 0;
+    // 不具合修正2026-08 — 電子版は1行=1txのため部分成功があり得る。全行成功
+    // なら従来どおり成功トースト、1行でも書込み失敗があれば警告トーストにし、
+    // 失敗行は既存の行エラーパネル（rowErrors）へそのまま流用して表示する。
+    if (failedCount > 0) {
+      message.warning(res.message);
+      rowErrors.value = (res.row_errors ?? []).slice(0, 10);
+    } else {
+      notify.success(res.message || MSG_016_004);
+    }
     // 機能 8.4 — 件数を表示し、次回アップロード用にリセット。
     importResult.value = {
       created_count: res.data?.created_count ?? 0,
       updated_count: res.data?.updated_count ?? 0,
       cancelled_count: res.data?.cancelled_count ?? 0,
       skipped_count: res.data?.skipped_count ?? 0,
+      failed_count: failedCount,
       rireki_count: res.data?.rireki_count ?? 0,
       total_rows: res.data?.total_rows ?? 0,
     };
@@ -721,12 +776,6 @@ function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
 function onPanelToggle(): void {
   panelCollapsed.value = !panelCollapsed.value;
 }
-
-function renderCell(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? '✓' : '';
-  return String(value);
-}
 </script>
 
 <template>
@@ -752,15 +801,21 @@ function renderCell(value: unknown): string {
                 <label
                   v-for="opt in shubetsuOptions"
                   :key="opt.value"
-                  class="inline-flex items-center gap-1.5 text-sm text-text-main cursor-pointer"
+                  class="inline-flex items-center gap-1.5 text-sm"
+                  :class="
+                    isShubetsuAllowed(Number(opt.value))
+                      ? 'text-text-main cursor-pointer'
+                      : 'text-text-disabled cursor-not-allowed'
+                  "
                 >
                   <input
                     v-model.number="dokusyaShubetsuFe"
                     type="radio"
                     name="import-shubetsu"
                     :value="Number(opt.value)"
+                    :disabled="!isShubetsuAllowed(Number(opt.value))"
                     :data-test="`import-shubetsu-${opt.value}`"
-                    class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20"
+                    class="w-3.5 h-3.5 border-border-strong accent-primary focus:ring-primary/20 disabled:cursor-not-allowed"
                   />
                   {{ opt.label }}
                 </label>
@@ -872,7 +927,7 @@ function renderCell(value: unknown): string {
               class="mt-1 text-xs text-text-description"
               data-test="import-bulk-stop-note"
             >
-              一括中止として取込みます。対象はIDで特定し、他の項目は更新しません。
+              一括中止として取込みます。対象はIDまたは組合員コードで特定し、他の項目は更新しません。
             </p>
           </div>
         </div>
@@ -1020,80 +1075,37 @@ function renderCell(value: unknown): string {
         </div>
 
         <!-- Preview -->
-        <div v-if="previewVisible" data-test="preview-section" class="space-y-2">
-          <div class="flex items-center justify-between">
-            <p class="text-sm font-semibold text-text-main">
-              <span class="text-primary">◆</span>
-              取込データプレビュー
-              <span class="text-xs font-normal text-text-secondary ml-2">
-                {{ parsedRows.length }}件
-              </span>
-            </p>
-          </div>
-          <div class="overflow-x-auto border border-border rounded">
-            <table class="w-full text-sm border-collapse min-w-max">
-              <thead>
-                <tr class="bg-surface-card-subtle text-left">
-                  <th
-                    v-for="col in previewColumns"
-                    :key="col"
-                    class="px-3 py-2 text-sm font-semibold text-text-main border-b border-border"
-                  >
-                    {{ JP_HEADERS[col] }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(row, rowIdx) in previewRows"
-                  :key="rowIdx"
-                  class="border-b border-border"
-                >
-                  <td
-                    v-for="col in previewColumns"
-                    :key="col"
-                    class="px-3 py-2 text-sm text-text-main"
-                  >
-                    {{ renderCell(row[col]) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <BaseImportPreviewTable
+          v-if="previewVisible"
+          ref="previewTableRef"
+          :rows="parsedRows"
+          :columns="previewColumns"
+          :header-labels="JP_HEADERS"
+        />
 
-        <!-- 行単位エラー一覧（最大10件） -->
-        <div
-          v-if="rowErrors.length > 0"
-          data-test="import-error-list"
-          class="border border-error/40 bg-error-subtle rounded p-3 space-y-1"
-        >
-          <p class="text-sm font-semibold text-error">
-            取込み処理にエラーが発生しました。
-          </p>
-          <ul class="m-0 pl-0 list-none space-y-0.5">
-            <li
-              v-for="(e, idx) in rowErrors"
-              :key="idx"
-              data-test="import-error-row"
-              class="text-sm text-error"
-            >
-              行{{ e.row }}: {{ JP_HEADERS[(e.field as PhysicalColumn)] ?? e.field }} — {{ e.message }}
-            </li>
-          </ul>
-        </div>
+        <!-- 行単位エラー一覧（最大10件・共通コンポーネント） -->
+        <BaseImportErrorPanel :errors="rowErrors" :field-labels="JP_HEADERS" />
 
-        <!-- Import result counts -->
+        <!-- Import result counts。failed_count > 0 は電子版の部分成功
+             （不具合修正2026-08・1行=1tx）— 枠色を警告寄りに変える。 -->
         <div
           v-if="importResult"
           data-test="import-result"
-          class="border border-success/40 bg-success-subtle rounded p-3 text-sm text-text-main"
+          :class="[
+            'border rounded p-3 text-sm text-text-main',
+            importResult.failed_count > 0
+              ? 'border-warning/40 bg-warning-subtle'
+              : 'border-success/40 bg-success-subtle',
+          ]"
         >
           取込件数：登録 {{ importResult.created_count }}件 / 更新
           {{ importResult.updated_count }}件 / 解約
           {{ importResult.cancelled_count }}件 / スキップ
           {{ importResult.skipped_count }}件 / 履歴
           {{ importResult.rireki_count }}件（合計 {{ importResult.total_rows }}件）
+          <template v-if="importResult.failed_count > 0">
+            / 失敗 {{ importResult.failed_count }}件
+          </template>
         </div>
       </form>
 

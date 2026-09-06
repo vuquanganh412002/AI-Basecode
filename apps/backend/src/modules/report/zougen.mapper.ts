@@ -512,10 +512,11 @@ export function groupZougenReports(
 // ─── ページ送り（文書ページ単位。名簿 SCR-026 と同方針）────────────────────
 /**
  * preview の既定ページ件数。SQLページングは **購読者(dokusya_id)単位**のため、
- * これは「1ページの購読者数」（≒レコード数。大半1レコード/購読者）。名簿と同じ 15。
+ * これは「1ページの購読者数」（≒レコード数。大半1レコード/購読者）。
+ * A4縦の1ページに収まる行数を実測のうえ 15→20 へ引き上げた（顧客要件2026-08-26）。
  * ページングは report.service 側で SQL OFFSET/LIMIT により行う（メモリ内ではない）。
  */
-export const ZOUGEN_PER_PAGE = 15;
+export const ZOUGEN_PER_PAGE = 20;
 
 /**
  * 1つの帳票(販売店+管理支店の combo)を perPage レコードずつのページに分割する。
@@ -624,7 +625,7 @@ const tableLayout = {
 };
 
 /** 適用日 YYYY-MM-DD → 「YYYY年M月D日」。 */
-function jpDate(iso: string): string {
+export function jpDate(iso: string): string {
   const [y, mo, d] = (iso ?? '').split('-');
   return y && mo && d ? `${y}年${Number(mo)}月${Number(d)}日` : (iso ?? '');
 }

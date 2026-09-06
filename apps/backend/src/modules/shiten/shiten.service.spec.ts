@@ -216,22 +216,39 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(scopedCall).toBeDefined();
     });
 
-    it('should apply JA-level DataScope (ja_id = session.ja_id) — NOT kanri_shiten — when caller is JA_KANRI_SHITEN', async () => {
-      // 顧客要件 2026-06 — JA_KANRI_SHITEN は **閲覧のみ** 同一 JA の全支店を
-      // 一覧できる（自管理支店配下に絞らない）。更新/削除は別途 kanri_shiten で制限。
+    it('should apply kanri_shiten-level DataScope (kanri_shiten_id = session.kanri_shiten_id) — NOT ja_id alone — when caller is JA_KANRI_SHITEN', async () => {
+      // 顧客要件 2026-08（2026-06 決定を上書き）— JA_KANRI_SHITEN は自管理
+      // 支店配下のみ一覧できる。更新/削除の kanri_shiten 制限と揃える。
       await service.findAll({}, buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }));
-      // Scoped by ja_id …
-      const jaScopedCall = qbMock.andWhere.mock.calls.find(
-        ([sql]: any[]) => typeof sql === 'string' && /ja_?id\s*=/i.test(sql),
-      );
-      expect(jaScopedCall).toBeDefined();
-      expect(jaScopedCall?.[1]).toMatchObject({ scopeJaId: 2 });
-      // … and NOT narrowed by kanri_shiten_id (viewable across the JA).
       const ksScopedCall = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) =>
           typeof sql === 'string' && /kanri_?shiten_?id\s*=/i.test(sql),
       );
-      expect(ksScopedCall).toBeUndefined();
+      expect(ksScopedCall).toBeDefined();
+      expect(ksScopedCall?.[1]).toMatchObject({ scopeKsId: 1 });
+    });
+
+    it('should further narrow by shiten_id when the JA_KANRI_SHITEN session has shiten_id set', async () => {
+      await service.findAll(
+        {},
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1, shiten_id: 1001 }),
+      );
+      const shitenScopedCall = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /\.shitenId\s*=/.test(sql),
+      );
+      expect(shitenScopedCall).toBeDefined();
+      expect(shitenScopedCall?.[1]).toMatchObject({ scopeShitenId: 1001 });
+    });
+
+    it('should NOT narrow by shiten_id when the JA_KANRI_SHITEN session has shiten_id null', async () => {
+      await service.findAll(
+        {},
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1, shiten_id: null }),
+      );
+      const shitenScopedCall = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /scopeShitenId/.test(sql),
+      );
+      expect(shitenScopedCall).toBeUndefined();
     });
 
     it('should apply ILIKE filter when query.shiten_name is provided', async () => {
@@ -374,13 +391,16 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       expect(ksListFilterCall()).toBeUndefined();
     });
 
-    it('should return nothing for a null-ja_id session lacking shiten.view, even with an explicit ja_id query (NICHINO_ADMIN — バグ報告 2026-08)', async () => {
+    it('should return nothing for a null-ja_id session lacking shiten.view, even with an explicit ja_id query (NICHINO_STAFF — バグ報告 2026-08)', async () => {
       // dropdown は共有エンドポイントで @Permissions を掛けないため、サービス層の
-      // この分岐が唯一の防御線。NICHINO_ADMIN(デフォルト buildSession() は
-      // ja_id=null・shiten.* なし)が ja_id を指定して全JA横断で支店を
-      // 閲覧できてしまっていたバグの回帰テスト。
+      // この分岐が唯一の防御線。NICHINO_STAFF(ja_id=null・shiten.* なし)が
+      // ja_id を指定して全JA横断で支店を閲覧できてしまっていたバグの回帰
+      // テスト（NICHINO_ADMIN は下記の role_code 明示許可テストを参照）。
       qbMock.getMany.mockResolvedValue([]);
-      await service.listDropdown({ ja_id: 1 }, buildSession());
+      await service.listDropdown(
+        { ja_id: 1 },
+        buildSession({ role_code: 'NICHINO_STAFF', permissions: [] }),
+      );
       const deny = qbMock.andWhere.mock.calls.find(
         ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
       );
@@ -390,6 +410,46 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
           typeof sql === 'string' && sql.includes('m.ja_id = :qja') && params?.qja === 1,
       );
       expect(jaFilter).toBeUndefined(); // ja_id クエリを信用してはいけない
+    });
+
+    it('should apply the query.ja_id filter (not block) for NICHINO_ADMIN now that shiten.view is granted (顧客CR 2026-08-24)', async () => {
+      // アカウント登録画面(ACSMS-SCR-025)で管理者区分=JA管理支店を選択した際の
+      // 所属支店ドロップダウンが常に空になっていた不具合の修正確認
+      // （旧: 不具合修正2026-08）。当時は NICHINO_ADMIN に shiten.view を
+      // 付与しない前提で role_code を直接見る特例だったが、顧客CR
+      // 2026-08-24 で shiten.* を正式付与したため特例は撤廃 — 生の
+      // permissions のみで判定する汎用パスをここで検証する。
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown(
+        { ja_id: 1 },
+        buildSession({
+          role_code: 'NICHINO_ADMIN',
+          permissions: ['shiten.create', 'shiten.view', 'shiten.update', 'shiten.delete'],
+        }),
+      );
+      const deny = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
+      );
+      expect(deny).toBeUndefined();
+      const jaFilter = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' && sql.includes('m.ja_id = :qja') && params?.qja === 1,
+      );
+      expect(jaFilter).toBeDefined();
+    });
+
+    it('should still block a null-ja_id session that lacks shiten.view even when role_code is NICHINO_ADMIN (no more role_code special-case)', async () => {
+      // 特例撤廃の裏付け — role_code だけでは許可されず、permissions の
+      // 実権限が唯一の判定材料であることを確認する。
+      qbMock.getMany.mockResolvedValue([]);
+      await service.listDropdown(
+        { ja_id: 1 },
+        buildSession({ role_code: 'NICHINO_ADMIN', permissions: [] }),
+      );
+      const deny = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && sql.includes('1 = 0'),
+      );
+      expect(deny).toBeDefined();
     });
 
     it('should return the minimal projection mapped from rows', async () => {
@@ -467,7 +527,37 @@ describe('ShitenService — SCR-006 (list / delete)', () => {
       // COVERS: §4.4 — conflict check on t_dokusya.shiten_id
       repo.findOne.mockResolvedValue(buildShiten({ shitenId: 1, jaId: 1 }));
       dataSource.query.mockImplementation(async (sql: string) => {
-        if (/t_dokusya/i.test(sql)) return [{ count: '2' }];
+        if (/FROM t_dokusya\b/i.test(sql)) return [{ count: '2' }];
+        return [{ count: '0' }];
+      });
+      await expect(service.remove(1, buildChuokaiSession({ ja_id: 1 }), baseReq))
+        .rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException when m_account has rows referencing the shiten (不具合修正2026-08)', async () => {
+      // COVERS: §4.4 — conflict check on m_account.shiten_id。実DBの
+      // FK制約(fk_m_account_shiten)は ON DELETE RESTRICT だが、従来この
+      // アプリ層ガードには含まれておらず所属支店を持つアカウントがあっても
+      // 支店を削除できてしまっていた。
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 1, jaId: 1 }));
+      dataSource.query.mockImplementation(async (sql: string) => {
+        if (/FROM m_account\b/i.test(sql)) return [{ count: '1' }];
+        return [{ count: '0' }];
+      });
+      await expect(service.remove(1, buildChuokaiSession({ ja_id: 1 }), baseReq))
+        .rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException when t_dokusya_rireki has rows referencing the shiten (履歴テーブル・不具合修正2026-08)', async () => {
+      // COVERS: §4.4 — conflict check on t_dokusya_rireki.shiten_id
+      // (実DBには存在するが従来ガード対象から漏れていた)。deleted_at 列が
+      // 無い append-only テーブルなので hasDeletedAt:false 経路も兼ねて確認。
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 1, jaId: 1 }));
+      dataSource.query.mockImplementation(async (sql: string) => {
+        if (/FROM t_dokusya_rireki\b/i.test(sql)) {
+          expect(sql).not.toMatch(/deleted_at/i);
+          return [{ count: '1' }];
+        }
         return [{ count: '0' }];
       });
       await expect(service.remove(1, buildChuokaiSession({ ja_id: 1 }), baseReq))
@@ -704,17 +794,43 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should RETURN a same-JA row from a DIFFERENT kanri_shiten for JA_KANRI_SHITEN (view-only expansion)', async () => {
-      // 顧客要件 2026-06 — role 5 can VIEW any shiten in its own JA, even
-      // ones not under its own kanri_shiten. The view succeeds; update /
-      // delete are blocked separately (403).
+    it('should mask a same-JA row from a DIFFERENT kanri_shiten as NotFoundException for JA_KANRI_SHITEN (顧客要件2026-08 — 2026-06 view-only expansion を上書き)', async () => {
       repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 99 }));
+      await expect(
+        service.findById(5, buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 })),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should return a row under the same kanri_shiten for JA_KANRI_SHITEN (shiten_id not set)', async () => {
+      repo.findOne.mockResolvedValue(buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 1 }));
       const result = await service.findById(
         5,
-        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1 }),
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1, shiten_id: null }),
       );
       expect(result.shiten_id).toBe(5);
-      expect(result.kanri_shiten_id).toBe(99);
+    });
+
+    it('should mask a same-kanri_shiten row from a DIFFERENT shiten as NotFoundException when session.shiten_id is set', async () => {
+      repo.findOne.mockResolvedValue(
+        buildShiten({ shitenId: 5, jaId: 2, kanriShitenId: 1 }),
+      );
+      await expect(
+        service.findById(
+          5,
+          buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1, shiten_id: 1001 }),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should return the row matching session.shiten_id exactly', async () => {
+      repo.findOne.mockResolvedValue(
+        buildShiten({ shitenId: 1001, jaId: 2, kanriShitenId: 1 }),
+      );
+      const result = await service.findById(
+        1001,
+        buildJaKanriShitenSession({ ja_id: 2, kanri_shiten_id: 1, shiten_id: 1001 }),
+      );
+      expect(result.shiten_id).toBe(1001);
     });
   });
 
@@ -831,6 +947,57 @@ describe('ShitenService — SCR-007 (detail + create + update)', () => {
       await service.create(validDto, buildJaHontenSession({ ja_id: 7 }), baseReq);
       const savedCall = txManager.save.mock.calls.find(
         (c: any[]) => c[c.length - 1]?.jaId === 7,
+      );
+      expect(savedCall).toBeDefined();
+    });
+
+    // [staff-ja-id] 顧客CR 2026-08-24 — NICHINO_ADMIN は session.ja_id が null
+    // のため代行入力として dto.ja_id へ fallback する
+    // （hanbaiten.service.ts の [staff-ja-id] と同じパターン）。
+    it('should fall back to dto.ja_id when NICHINO_ADMIN (session.ja_id null) sends it (代行入力)', async () => {
+      kanriShitenRepo.findOne.mockResolvedValueOnce({ kanriShitenId: 1, jaId: 9 });
+      const adminSession = buildSession({
+        ja_id: null,
+        permissions: ['shiten.create', 'shiten.view', 'shiten.update', 'shiten.delete'],
+      });
+      const result = await service.create(
+        { ...validDto, ja_id: 9 },
+        adminSession,
+        baseReq,
+      );
+      expect(result.shiten_id).toBe(10);
+      const savedCall = txManager.save.mock.calls.find(
+        (c: any[]) => c[c.length - 1]?.jaId === 9,
+      );
+      expect(savedCall).toBeDefined();
+    });
+
+    it('should throw ValidationException when NICHINO_ADMIN omits ja_id (no session fallback, no dto.ja_id)', async () => {
+      const adminSession = buildSession({
+        ja_id: null,
+        permissions: ['shiten.create', 'shiten.view', 'shiten.update', 'shiten.delete'],
+      });
+      await expect(service.create(validDto, adminSession, baseReq)).rejects.toMatchObject({
+        response: {
+          error_code: 'VALIDATION_ERROR',
+          errors: [{ field: 'ja_id', message: expect.any(String) }],
+        },
+      });
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should IGNORE a JA-scoped role sending dto.ja_id and use session.ja_id instead (cross-tenant injection guard)', async () => {
+      // CHUOKAI always has a non-null session.ja_id — even if the client
+      // smuggles a different ja_id in the body, the service must bind to
+      // the session's JA, never the body's.
+      const result = await service.create(
+        { ...validDto, ja_id: 999 },
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+      expect(result.shiten_id).toBe(10);
+      const savedCall = txManager.save.mock.calls.find(
+        (c: any[]) => c[c.length - 1]?.jaId === 1,
       );
       expect(savedCall).toBeDefined();
     });

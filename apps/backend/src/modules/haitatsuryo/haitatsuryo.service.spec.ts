@@ -9,6 +9,7 @@
 // 税区分 (m_ja.zei_kubun) is fetched via jaRepo.findOne. Each it() maps back to a
 // clause in docs/design/ACSMS-SCR-021/ACSMS-SCR-021-api.md.
 
+import * as ExcelJS from 'exceljs';
 import { attachLogExport } from '@test/utils/audit-log-mock';
 import { HaitatsuryoService } from '@/modules/haitatsuryo/haitatsuryo.service';
 import {
@@ -102,6 +103,7 @@ describe('HaitatsuryoService', () => {
       expect(row.hanbaiten_id).toBe(101);
       expect(row.hanbaiten_code).toBe('H001');
       expect(row.hanbaiten_name).toBe('東京中央販売店');
+      expect(row.itaku_kubun).toBe(1);
       expect(row.total_busu).toBe(120);
       expect(row.total_kingaku).toBe(588000);
       expect(row.haitatsuryo_shiharai_cycle).toBe(3);
@@ -334,6 +336,32 @@ describe('HaitatsuryoService', () => {
           filename: '配達手数料支払情報出力_2026年04月.xlsx',
         }),
       );
+    });
+
+    it('should place 委託区分 between 対象月/販売店コード and 単価 between 当月部数/当月金額 (顧客要件 2026-08-26)', async () => {
+      // COVERS: Excel の列順 — 対象月, 委託区分, 販売店コード, 販売店名,
+      // 当月部数, 単価, 当月金額, ...
+      mockAgg([buildHaitatsuryoAggRow({ itaku_kubun: 1, tesuryo: 4900 })]);
+
+      const result = await service.exportHaitatsuryoExcel(
+        buildHaitatsuryoQuery(),
+        hSession(),
+        req,
+      );
+      if ('empty' in result && result.empty) throw new Error('unexpected empty result');
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      const headerRow = ws.getRow(1).values as unknown[];
+      // ExcelJS row.values is 1-indexed (index 0 is unused).
+      expect(headerRow.slice(1, 8)).toEqual([
+        '対象月', '委託区分', '販売店コード', '販売店名', '当月部数', '単価', '当月金額',
+      ]);
+
+      const dataRow = ws.getRow(2).values as unknown[];
+      // codeService 未注入（spec は4引数で new）→ ITAKU_KUBUN は raw code 文字列にフォールバック。
+      expect(dataRow.slice(1, 8)).toEqual(['202604', '1', 'H001', '東京中央販売店', 120, 4900, 588000]);
     });
 
     it('should archive the Excel to S3 + t_file_download via the common FileArchiveService when export succeeds', async () => {

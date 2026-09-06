@@ -18,6 +18,7 @@ updated_by: Tran Duc Tuyen
 | No | 発行日 | 版数 | 担当者 | 変更内容 | 確認者 | 承認者 |
 |---|---|---|---|---|---|---|
 | 1 | {issue_date} | 1.0 | Tran Duc Tuyen | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2 | 2026/08/20 | 1.1 | Tran Duc Tuyen | 不具合修正2026-08：§4.4 関連データチェックに `t_dokusya_rireki`（購読者履歴、tanka_id 参照）を追加。実DBの外部キー制約(`FK_t_dokusya_rireki_m_tanka`)には存在するが、削除ガードの対象から漏れていた。 | | |
 
 ## システム概要
 
@@ -380,6 +381,11 @@ WHERE haitatsuryo_tanka_id = :tanka_id AND deleted_at IS NULL;
 -- 購読者の単価参照チェック
 SELECT COUNT(*) FROM t_dokusya
 WHERE tanka_id = :tanka_id AND deleted_at IS NULL;
+
+-- 購読者履歴の単価参照チェック（不具合修正2026-08 — t_dokusya_rireki は
+-- append-only の履歴テーブルで deleted_at 列を持たないため付けない）
+SELECT COUNT(*) FROM t_dokusya_rireki
+WHERE tanka_id = :tanka_id;
 ```
 - いずれかに関連レコードが存在する場合：
   - HTTP 409 Conflict を返却する。

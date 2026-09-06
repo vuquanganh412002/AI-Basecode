@@ -1761,4 +1761,409 @@ describe('ReportService — 増減連絡票（販売店） (SCR-028)', () => {
     });
 
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // ACSMS-API-028-003 — POST /api/v1/report/zougen-hanbaiten/export-excel
+  // レポートプレビューと同じ内容をExcelで出力する（顧客要件2026-08-26）。
+  // PDF出力とは独立の読み取り専用出力。集計・ファイル名役職分岐・S3保存は共通。
+  // ═══════════════════════════════════════════════════════════════════
+  describe('exportZougenHanbaitenExcel', () => {
+    it('should return an Excel buffer + role-aware filename (CHUOKAI/JA本店 → no 管理支店) when data exists', async () => {
+      // COVERS: 顧客要件2026-08-26 ファイル名 (JA本店/中央会) =
+      //   増減連絡票_{JA名}_{JAコード}_{適用日YYYYMMDD}.xlsx
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          empty: false,
+          buffer: expect.any(Buffer),
+          filename: '増減連絡票_テストJA_JA001_20260501.xlsx',
+        }),
+      );
+    });
+
+    it('should include 管理支店名/コード in the filename when the role is JA_KANRI_SHITEN', async () => {
+      // COVERS: 顧客要件2026-08-26 ファイル名 (JA管理支店) =
+      //   増減連絡票_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日YYYYMMDD}.xlsx
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        buildJaKanriShitenSession({
+          ja_id: 1,
+          permissions: ['report.export_zougen_hanbaiten'],
+        }),
+        req,
+      );
+
+      expect(result).toMatchObject({
+        empty: false,
+        filename:
+          '増減連絡票_テストJA_JA001_JA東京中央 本店管理支店_1AA3300001_20260501.xlsx',
+      });
+    });
+
+    it('should build an Excel sheet mirroring the report layout: title, 販売店御中, 増部/減部/住所変更 sections', async () => {
+      // COVERS: 顧客要件2026-08-26「実際の報告書フォーマットに近い」プレビュー内容
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenRawRow({ dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
+      ]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+      if (result.empty) throw new Error('unexpected empty result');
+
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      const text = ws
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('日本農業新聞増減連絡票');
+      expect(text).toContain('御中');
+      expect(text).toContain('増部');
+      expect(text).toContain('減部');
+      expect(text).toContain('住所変更');
+      // PDF の entrySection ヘッダ（部数/住所/新規氏名/配達先読者名/電話番号/備考）と同じ列見出し。
+      expect(text).toContain('部数');
+      expect(text).toContain('新規氏名');
+      expect(text).toContain('配達先読者名');
+      // Page：k/M（PDF の reportContent titleRow と同じページ表記）。単一combo=1ページのみ。
+      expect(text).toContain('Page：1/1');
+    });
+
+    it('should render a bordered blank row for 減部/住所変更 when they have no data (matching PDF emptyRow — 顧客要件)', async () => {
+      // COVERS: 0件のセクションでもPDFプレビュー同様、罫線付きの空行を1行表示する。
+      // 増部のみ発生させ（減部・住所変更は0件）、両セクションのヘッダ直後の行が
+      // 罫線付き（PDFのemptyRow相当）であることを確認する。
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenRawRow({ dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
+      ]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+      if (result.empty) throw new Error('unexpected empty result');
+
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      const rows = ws.getRows(1, ws.rowCount) ?? [];
+
+      const genbuHeaderIdx = rows.findIndex((r) => r.getCell(3).value === '中止氏名');
+      expect(genbuHeaderIdx).toBeGreaterThan(-1);
+      const genbuBlankRow = rows[genbuHeaderIdx + 1];
+      expect(genbuBlankRow.getCell(1).value).toBeFalsy();
+      expect(genbuBlankRow.getCell(1).border).toEqual(
+        expect.objectContaining({ top: expect.anything(), bottom: expect.anything() }),
+      );
+
+      const addressHeaderIdx = rows.findIndex((r) => r.getCell(1).value === '住所変更');
+      expect(addressHeaderIdx).toBeGreaterThan(-1);
+      // ヘッダ行の次（列見出し行）のさらに次が空データ行。
+      const addressBlankRow = rows[addressHeaderIdx + 2];
+      expect(addressBlankRow.getCell(1).value).toBeFalsy();
+      expect(addressBlankRow.getCell(1).border).toEqual(
+        expect.objectContaining({ top: expect.anything(), bottom: expect.anything() }),
+      );
+    });
+
+    it('should insert a manual page break between 販売店 combos (PDF/preview and 1 combo = 1 page)', async () => {
+      // COVERS: paginateZougenSubscribers を PDF export と共有 — 1 combo = 1 ページ。
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenRawRow({ dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
+        buildZougenRawRow({
+          hanbaiten_id: 201,
+          hanbaiten_code: 'H002',
+          hanbaiten_name: '中野販売店',
+          dokusya_busu: 3,
+          zenkai_dokusya_busu: 1,
+        }),
+      ]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01', hanbaiten_id: [200, 201] }),
+        zSession(),
+        req,
+      );
+      if (result.empty) throw new Error('unexpected empty result');
+
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      // 2 combo（千代田販売店 / 中野販売店）→ 独立した2文書ページ（PDF と同じ）。
+      // ExcelJS のリーダーは rowBreaks をラウンドトリップで復元しないため
+      // （write 側の生XMLでは <rowBreaks><brk .../></rowBreaks> と確認済み）、
+      // ここでは「2ページ分のタイトル行が独立して存在する」ことで検証する。列Aのみを
+      // 見る — getSheetValues() はマージ範囲の値を全セルへ複製するため列横断の
+      // カウントは水増しされる。
+      const colAValues = ws.getColumn(1).values as unknown[];
+      const titleCount = colAValues.filter((v) => v === '日本農業新聞増減連絡票').length;
+      expect(titleCount).toBe(2);
+      const text = ws
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('千代田販売店');
+      expect(text).toContain('中野販売店');
+    });
+
+    it('should duplicate 氏名/配達先読者名/電話番号/備考 onto both 変更前/変更後 rows in 住所変更 WITHOUT merging cells (perf: mergeCells is O(n²) over existing merges)', async () => {
+      // COVERS: addressSection と同じ情報量（氏名等は変更前後で同一値）だが、
+      // ExcelJS.mergeCells() は呼び出しごとに既存の全結合を走査するため、住所変更が
+      // 大量にある実データで rowSpan 相当をセル結合すると O(結合数²) になり
+      // バックエンドが長時間ブロックする（本番相当データで実際に発生・nginx 504 +
+      // Node イベントループが解放されず後続リクエストも全滅した）。結合せず複製する。
+      qbMock.getRawMany.mockResolvedValue([
+        buildZougenRawRow({
+          // 部数を変えず（増部/減部と誤分類させない）現住所（生フィールド）だけ変更
+          // → addressChangedFromRc が shikuchoson/chome_banchi の raw 値差分で検知する
+          // （zenkai_* は既定のまま=旧住所。now_* は display 用の集約列）。
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2,
+          shikuchoson: '新宿区',
+          chome_banchi: '西新宿2-2-2',
+          now_shikuchoson: '新宿区',
+          now_chome_banchi: '西新宿2-2-2',
+        }),
+      ]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+      if (result.empty) throw new Error('unexpected empty result');
+
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      const text = ws
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('変更前');
+      expect(text).toContain('変更後');
+      // 氏名（農業 太郎）は変更前/変更後どちらの行にも複製されている（結合していない）。
+      const rows = ws.getRows(1, ws.rowCount) ?? [];
+      const beforeRow = rows.find((r) => r.getCell(1).value === '変更前');
+      const afterRow = rows.find((r) => r.getCell(1).value === '変更後');
+      expect(beforeRow?.getCell(3).value).toBe('農業 太郎');
+      expect(afterRow?.getCell(3).value).toBe('農業 太郎');
+    });
+
+    it('should keep the merge count constant regardless of how many 住所変更 pairs exist (regression: O(n²) mergeCells hang on real data)', async () => {
+      // COVERS: 実データ規模で住所変更が多いとバックエンドがCPU張り付きで固まっていた
+      // 不具合の再発防止。マージ数は1帳票あたりの帳票ヘッダ由来の固定数のみで、
+      // 住所変更のペア数に比例して増えてはならない（比例したら O(n²) 経路に戻っている）。
+      const oneRow = [
+        buildZougenRawRow({
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2,
+          shikuchoson: '新宿区',
+          chome_banchi: '西新宿2-2-2',
+        }),
+      ];
+      // 1購読者=住所変更2行（変更前/変更後）。6件×2行=12行はページ内(ZOUGEN_PER_PAGE=20)に
+      // 収まるため、増ページ分の帳票ヘッダ結合を持ち込まずに1ページのままで比較できる。
+      const manyRows = Array.from({ length: 6 }, (_, i) =>
+        buildZougenRawRow({
+          dokusya_id: 9000 + i,
+          dokusya_rireki_id: 9500 + i,
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2,
+          shikuchoson: '新宿区',
+          chome_banchi: '西新宿2-2-2',
+        }),
+      );
+
+      const ExcelJS = await import('exceljs');
+      const mergeCountFor = async (rows: ReturnType<typeof buildZougenRawRow>[]) => {
+        qbMock.getRawMany.mockResolvedValue(rows);
+        const result = await service.exportZougenHanbaitenExcel(
+          buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+          zSession(),
+          req,
+        );
+        if (result.empty) throw new Error('unexpected empty result');
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(result.buffer as never);
+        return (wb.worksheets[0].model.merges ?? []).length;
+      };
+
+      const mergesForOne = await mergeCountFor(oneRow);
+      const mergesForMany = await mergeCountFor(manyRows);
+      expect(mergesForMany).toBe(mergesForOne);
+    });
+
+    it('should build a production-scale Excel (500 購読者 across many 販売店/管理支店 combos, all 住所変更) in well under a second (regression: previously hung the whole Node process — nginx 504 twice, backend stuck at 100%+ CPU until container restart)', async () => {
+      // COVERS: 実際に本番相当データで発生した障害の再発防止。500件×住所変更2行=1000行、
+      // 50 combo（販売店id 200〜249）に分散。O(n²) mergeCells に戻っていれば数十秒〜
+      // それ以上かかる規模。
+      const rows = Array.from({ length: 500 }, (_, i) =>
+        buildZougenRawRow({
+          dokusya_id: 20000 + i,
+          dokusya_rireki_id: 21000 + i,
+          hanbaiten_id: 200 + (i % 50),
+          hanbaiten_code: `H${String(200 + (i % 50)).padStart(3, '0')}`,
+          hanbaiten_name: `販売店${i % 50}`,
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2,
+          shikuchoson: '新宿区',
+          chome_banchi: '西新宿2-2-2',
+        }),
+      );
+      qbMock.getRawMany.mockResolvedValue(rows);
+
+      const start = Date.now();
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+      const elapsedMs = Date.now() - start;
+
+      if (result.empty) throw new Error('unexpected empty result');
+      expect(result.buffer.length).toBeGreaterThan(0);
+      // O(n) 実装なら数百ms以内。O(n²) mergeCells に戻れば桁違いに遅くなるので
+      // 余裕を持って2秒を閾値にする（CI環境差を考慮）。
+      expect(elapsedMs).toBeLessThan(2000);
+    });
+
+    it('should build a many-page Excel (2,000 購読者 in ONE 販売店 combo → ~100 pages via ZOUGEN_PER_PAGE splitting) in well under a second (regression: page-header labels used mergeCells — 55,000-row/~3,667-page production data blocked the backend for 2+ minutes even after the 住所変更-section fix)', async () => {
+      // COVERS: 実際の障害はこちらが本丸だった。1 combo が ZOUGEN_PER_PAGE(20)を超えて
+      // 大量ページに分割される（splitReport）とき、各ページのタイトル/販売店/管理支店
+      // ヘッダをセル結合していたため、住所変更セクションの結合を無くしただけでは直らず、
+      // ページ数に対して O(ページ数²) のままだった。ヘッダも非結合化して解消。
+      const rows = Array.from({ length: 2000 }, (_, i) =>
+        buildZougenRawRow({
+          dokusya_id: 30000 + i,
+          dokusya_rireki_id: 31000 + i,
+          // 単一 combo（同一 hanbaiten_id/kanri_shiten_id）に集中させ、大量ページ分割を誘発。
+          dokusya_busu: 2,
+          zenkai_dokusya_busu: 2,
+          shikuchoson: '新宿区',
+          chome_banchi: '西新宿2-2-2',
+        }),
+      );
+      qbMock.getRawMany.mockResolvedValue(rows);
+
+      const start = Date.now();
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+      const elapsedMs = Date.now() - start;
+
+      if (result.empty) throw new Error('unexpected empty result');
+      expect(result.buffer.length).toBeGreaterThan(0);
+      expect(elapsedMs).toBeLessThan(2000);
+    });
+
+    it('should archive the Excel via FileArchiveService (category=zougen-hanbaiten, subFolder-less path, year from tekiyo_date)', async () => {
+      // COVERS: 共通 S3 アーカイブ + t_file_download。subFolder なし・年=適用日年。PDF export と同じ場所。
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+      await service.exportZougenHanbaitenExcel(
+        buildZougenQuery({ tekiyo_date: '2026-05-01' }),
+        zSession(),
+        req,
+      );
+
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg).toEqual(
+        expect.objectContaining({
+          category: 'zougen-hanbaiten',
+          year: '2026',
+          jaCode: 'JA001',
+          baseName: '増減連絡票_テストJA_JA001_20260501',
+          displayName: '増減連絡票_テストJA_JA001_20260501',
+          contentType:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          extension: '.xlsx',
+          recordCount: 1,
+        }),
+      );
+      expect(arg.subFolder).toBeUndefined();
+      expect(storage.upload).not.toHaveBeenCalled();
+      expect(fileDownloadRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('should write an operation log with EXPORT_EXCEL + result_status success + targetTable t_file_download', async () => {
+      // COVERS: 操作ログ — operation 'EXPORT_EXCEL' / target = t_file_download
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+      await service.exportZougenHanbaitenExcel(
+        buildZougenQuery(),
+        zSession({ account_id: 11 }),
+        req,
+      );
+
+      expect(auditLog.logOperation).toHaveBeenCalled();
+      const args = auditLog.logOperation.mock.calls[0][0];
+      expect(args).toEqual(
+        expect.objectContaining({
+          logType: 1,
+          operation: 'EXPORT_EXCEL',
+          resultStatus: 1,
+          targetTable: 't_file_download',
+        }),
+      );
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should NOT log personal data (氏名/住所) in the operation log after_value', async () => {
+      // COVERS: 個人情報は含めない
+      qbMock.getRawMany.mockResolvedValue([buildZougenRawRow()]);
+      await service.exportZougenHanbaitenExcel(buildZougenQuery(), zSession(), req);
+
+      const args = auditLog.logOperation.mock.calls[0][0];
+      const after = String(args.afterValue ?? '');
+      expect(after).not.toContain('農業');
+      expect(after).not.toContain('神田');
+    });
+
+    it('should emit an error log (log_type=3) when export fails', async () => {
+      qbMock.getRawMany.mockRejectedValueOnce(new Error('db-down'));
+
+      await expect(
+        service.exportZougenHanbaitenExcel(buildZougenQuery(), zSession(), req),
+      ).rejects.toBeDefined();
+      expect(auditLog.logError).toHaveBeenCalled();
+      const lastCall = auditLog.logError.mock.calls[0];
+      expect(lastCall[1]).toBe('EXPORT_EXCEL');
+    });
+
+    it('should return { empty: true } and NOT generate an Excel file when no record matches', async () => {
+      qbMock.getRawMany.mockResolvedValue([]);
+
+      const result = await service.exportZougenHanbaitenExcel(
+        buildZougenQuery(),
+        zSession(),
+        req,
+      );
+      expect(result).toEqual({ empty: true });
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      expect(auditLog.logOperation).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -57,7 +57,7 @@ export class SeedMCode1711900900005 implements MigrationInterface {
       ('ITAKU_KUBUN', '9', 'その他', 'その他', 3, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
       ('TESURYO_KUBUN', '1', 'JA', 'JA', 1, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
       ('TESURYO_KUBUN', '2', '販売店', '販売店', 2, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
-      ('YUBIN_KUBUN', '0', '空', '空', 1, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
+      ('YUBIN_KUBUN', '0', '配達', '配達', 1, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
       ('YUBIN_KUBUN', '1', '郵送', '郵送', 2, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
       ('MAIL_MAGAZINE_FLG', '0', '配信しない', '配信しない', 1, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),
       ('MAIL_MAGAZINE_FLG', '1', '配信する', '配信する', 2, '', '2026-01-01', 'SYSTEM_MIGRATION', '2026-01-01', 'SYSTEM_MIGRATION'),

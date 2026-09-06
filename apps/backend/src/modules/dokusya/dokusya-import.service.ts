@@ -19,6 +19,8 @@ import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
 import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 import { MAIL_MAGAZINE_FLG_OFF } from '@/common/constants/mail-magazine-flg.constant';
 import { YUBIN_KUBUN_NASHI } from '@/common/constants/yubin-kubun.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import {
   allowsDokusyasoBunruiSonota,
   allowsJaYakushokuinFlg,
@@ -32,7 +34,7 @@ import { DenshibanPushService } from '@/modules/denshiban/denshiban-push.service
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { ImportDokusyaDto, ImportDokusyaRowDto } from './dto/import-dokusya.dto';
-import { DokusyaImportValidationException } from './exceptions/import-validation.exception';
+import { ImportValidationException } from '@/common/exceptions/import-validation.exception';
 import { DokusyaRowLimitExceededException } from './exceptions/row-limit-exceeded.exception';
 import { DokusyaAccountFlagService } from './dokusya-account-flag.service';
 import { DokusyaRirekiService } from './dokusya-rireki-helper.service';
@@ -41,7 +43,6 @@ import { applyChange, insertScheduledKaiyaku } from './dokusya-history.writer';
 import { DokusyaFields } from './dokusya-history.types';
 
 /** ACSMS-SCR-016 — 監査コンテキストの画面名ラベル。 */
-const SCREEN_NAME_SCR016 = '購読者Excelデータ取込画面 (ACSMS-SCR-016)';
 
 /** ACSMS-SCR-016 監査ログ用テーブル名（t_log.target_table）。DokusyaService と同値だが自己完結のため複製。 */
 const TABLE_NAME = 't_dokusya';
@@ -73,6 +74,14 @@ interface ImportRowLookups {
   hanbaitenClosedCodeSet: Set<string>;
   kanriShitenCodeSet: Set<string>;
   shitenCodeSet: Set<string>;
+  /** 管理支店コード → その管理支店自体の取扱いフラグ（m_kanri_shiten.paper_flg/denshi_flg）。 */
+  kanriShitenFlagsByCode: Map<string, { paperFlg: boolean; denshiFlg: boolean }>;
+  /** 支店コード → 所属する管理支店コード（m_shiten.kanri_shiten_id 経由。未設定は null）。 */
+  shitenKanriShitenCodeByCode: Map<string, string | null>;
+  /** ログイン中アカウントが管理支店に固定されている場合の自管理支店コード（未固定は null）。 */
+  ownKanriShitenCode: string | null;
+  /** 同様に session.shiten_id を解決した自支店コード（未固定は null）。 */
+  ownShitenCode: string | null;
   /**
    * 既存の電子版(2)・併読(3) レコードの email → dokusya_id 群（JA 全件）。
    * 取込時のメール重複チェック用。紙版(1) は含めない（重複可）。
@@ -128,16 +137,16 @@ const IMPORT_TEMPLATE_HEADERS: readonly string[] = [
   '市町村郡',
   '丁目番地',
   'マンション・アパート名',
-  '連絡先１',
-  '連絡先２',
+  'TEL1',
+  'TEL2',
   '購読者情報と同じ',
   '郵便番号(配達先)',
   '都道府県(配達先)',
   '市町村郡(配達先)',
   '丁目番地(配達先)',
   'ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)',
-  '連絡先１(配達先)',
-  '連絡先２(配達先)',
+  'TEL1(配達先)',
+  'TEL2(配達先)',
   '配達先苗字（漢字）',
   '配達先名前（漢字）',
   '配達先苗字（かな）',
@@ -192,22 +201,22 @@ const IMPORT_TEMPLATE_SAMPLE_ROW: readonly (string | number)[] = [
   '千代田区', // 市町村郡
   '千代田1-1-1', // 丁目番地
   'サンプルマンション101', // マンション・アパート名
-  '0312345678', // 連絡先１ (半角数字・ハイフンなし)
-  '09012345678', // 連絡先２ (半角数字・ハイフンなし)
+  '0312345678', // TEL1 (半角数字・ハイフンなし)
+  '09012345678', // TEL2 (半角数字・ハイフンなし)
   'FALSE', // 購読者情報と同じ (FALSE:配達先を別途入力 / TRUE:配達先列は空でよい)
   '1500001', // 郵便番号(配達先) (7桁)
   '13', // 都道府県(配達先)
   '渋谷区', // 市町村郡(配達先)
   '神宮前1-1-1', // 丁目番地(配達先)
   'サンプルビル201', // ﾏﾝｼｮﾝ・ｱﾊﾟｰﾄ名(配達先)
-  '0311112222', // 連絡先１(配達先)
-  '09033334444', // 連絡先２(配達先)
+  '0311112222', // TEL1(配達先)
+  '09033334444', // TEL2(配達先)
   '配達', // 配達先苗字（漢字）
   '花子', // 配達先名前（漢字）
   'はいたつ', // 配達先苗字（かな・ひらがな）
   'はなこ', // 配達先名前（かな・ひらがな）
   'HAN01', // 販売店コード (販売店コード — 自組織のコードに書き換え)
-  '1', // 郵送区分 (0:空 / 1:郵送)
+  '1', // 郵送区分 (0:配達 / 1:郵送)
   1, // 支払方法 (1:口座引落 / 2:現金集金 / 3:振込集金 …)
   1, // 購読料支払サイクル（月数）
   1, // 引落口座貯金種目 (1:普通 / 2:当座)
@@ -242,6 +251,12 @@ const IMPORT_TEMPLATE_FILENAME = '購読者Excelデータ取込_テンプレー�
 const IMPORT_EDIT_IMMUTABLE_COLUMNS: ReadonlySet<string> = new Set([
   'dokusya_shubetsu',
   'dokusya_kaishi_date',
+  // 管理支店は作成時に確定し編集では変更不可（顧客要件 2026-07・
+  // dokusya.service.ts update() の [kanri-shiten-immutable] pin と同じ規則）。
+  // 不具合修正2026-08 — UI 編集はこの列を pin 済みだが、Excel 取込の UPDATE
+  // だけこの規則が抜けており、selected_columns に含めれば作成後の読者を
+  // 別の管理支店へ移動できてしまっていた。
+  'kanri_shiten_code',
 ]);
 
 /** ACSMS-SCR-016 — クライアントへ返す行エラー上限（api.md §4.1）。 */
@@ -256,9 +271,7 @@ const IMPORT_MAX_ROWS = 5000;
  */
 const IMPORT_OPERATION_BY_MODE: Record<'NEW' | 'UPDATE', AuditOperation> = {
   NEW: AuditOperation.IMPORT_NEW,
-  // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存
-  // IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換のため enum は変えない）。
-  UPDATE: AuditOperation.IMPORT_UPDATE_PARTIAL,
+  UPDATE: AuditOperation.IMPORT_UPDATE,
 };
 
 
@@ -337,10 +350,14 @@ export class DokusyaImportService {
       updated_count: number;
       cancelled_count: number;
       skipped_count: number;
+      /** 書込み段で失敗した行数（電子版のみ発生しうる。紙版は常に0 — §Phase 2以降参照）。 */
+      failed_count: number;
       rireki_count: number;
       imported_at: string;
     };
     message: string;
+    /** 書込み段で失敗した行の詳細（電子版のみ・不具合修正2026-08）。紙版は常に省略。 */
+    row_errors?: Array<{ row: number; message: string }>;
   }> {
     // 紙版・電子版いずれの取扱い権限も無いアカウントはExcel取込不可
     // (account_concept.md §139-145).
@@ -378,7 +395,7 @@ export class DokusyaImportService {
     const errors: Array<{ row: number; field: string; message: string }> = [];
 
     // §4.3 — FK 解決 + 既存購読者ロード（ja_id スコープ）をまとめて行う。
-    const { lookups, fkMaps } = await this.buildImportLookups(dto, jaId);
+    const { lookups, fkMaps } = await this.buildImportLookups(dto, jaId, session);
     // 電子版はダミー販売店(9999999999)へ強制解決するため、当該 JA に未整備だと
     // 行ループへ入る前に一括で分かりやすい理由のエラーを返す（行ごとの
     // 「販売店コードが見つかりません」連発を避ける）。
@@ -407,52 +424,86 @@ export class DokusyaImportService {
         error_count: errors.length,
         errors: errors.slice(0, IMPORT_ERROR_CAP),
       });
-      throw new DokusyaImportValidationException(errors.slice(0, IMPORT_ERROR_CAP));
+      throw new ImportValidationException(errors.slice(0, IMPORT_ERROR_CAP));
     }
 
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCREEN_NAME_SCR016,
+      ScreenName.ACSMS_SCR_016,
       TABLE_NAME,
       null,
     );
     const importedAt = new Date().toISOString();
 
-    // 取込はバッチ操作 — モード別 prefixed ラベル（IMPORT_NEW / IMPORT_UPDATE_PARTIAL）。
+    // 取込はバッチ操作 — モード別 prefixed ラベル（IMPORT_NEW / IMPORT_UPDATE）。
     // bare-verb ルールの例外（api.md §4.5。単一 INSERT と一括取込を t_log で区別）。
-    // UPDATE は partial 相当のため既存 IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換）。
     const importOperation = IMPORT_OPERATION_BY_MODE[dto.import_mode];
 
-    // 一括中止で電子版へ cancel を送った会員ID。tx の外に置く — ロールバックしても
-    // 「既に送ってしまった」事実は消えないので、補償 push の対象として残す必要がある。
-    const pushedKaiinIds: number[] = [];
+    // 電子版は cloud → 電子版 push を伴うため、紙版と書込み単位を分ける
+    // （不具合修正2026-08。詳細は importExcelPerRow の JSDoc）。
+    if (dto.dokusya_shubetsu === DokusyaShubetsu.DIGITAL) {
+      return this.importExcelPerRow(
+        dto,
+        session,
+        fkMaps,
+        auditCtx,
+        importOperation,
+        importedAt,
+      );
+    }
 
+    return this.importExcelAtomic(
+      dto,
+      session,
+      fkMaps,
+      auditCtx,
+      importOperation,
+      importedAt,
+      { createdCount, updatedCount, cancelledCount },
+    );
+  }
+
+  /**
+   * 紙版の書込み — 全行を1 tx にまとめる（従来どおり・不変）。紙版は外部システム
+   * 連携が無いため「全行成功 or 全行ロールバック」が最も安全でシンプルな契約。
+   */
+  private async importExcelAtomic(
+    dto: ImportDokusyaDto,
+    session: SessionPayload,
+    fkMaps: {
+      tankaIdByCode: Map<string, number>;
+      hanbaitenIdByCode: Map<string, number>;
+      kanriShitenIdByCode: Map<string, number>;
+      shitenIdByCode: Map<string, number>;
+    },
+    auditCtx: ReturnType<typeof buildAuditCtx>,
+    importOperation: AuditOperation,
+    importedAt: string,
+    counts: {
+      createdCount: number;
+      updatedCount: number;
+      cancelledCount: number;
+    },
+  ): Promise<{
+    data: {
+      import_mode: string;
+      total_rows: number;
+      created_count: number;
+      updated_count: number;
+      cancelled_count: number;
+      skipped_count: number;
+      failed_count: number;
+      rireki_count: number;
+      imported_at: string;
+    };
+    message: string;
+  }> {
     try {
       await this.dataSource.transaction(async (manager) => {
-        // Phase 2 — cloud 側の DML を全行ぶん。一括中止の push はここでは送らず、
-        // 後段でまとめて送る（送信済みの記録を tx の外に残すため）。
-        const pendingStopPushes: Array<{ after: Dokusya }> = [];
         for (const row of dto.rows) {
-          await this.applyImportRow(
-            manager,
-            dto,
-            row,
-            session,
-            fkMaps,
-            pendingStopPushes,
-          );
+          await this.applyImportRow(manager, dto, row, session, fkMaps);
         }
-
-        // Phase 3 — 一括中止の電子版連携。1件でも失敗すれば例外が上へ抜け、
-        // tx はロールバックされる（＝cloud 側は無かったことになる）。
-        // 紙版は pushOnWrite が対象外として false を返すので何も送られない。
-        await this.pushBulkStops(
-          manager,
-          dto,
-          pendingStopPushes,
-          pushedKaiinIds,
-        );
 
         // §4.5 — 取込1回につき集約監査1行、tx に参加。
         await this.auditLog.logOperation(
@@ -468,9 +519,9 @@ export class DokusyaImportService {
             afterValue: JSON.stringify({
               import_mode: dto.import_mode,
               total_rows: dto.rows.length,
-              created_count: createdCount,
-              updated_count: updatedCount,
-              cancelled_count: cancelledCount,
+              created_count: counts.createdCount,
+              updated_count: counts.updatedCount,
+              cancelled_count: counts.cancelledCount,
               imported_at: importedAt,
             }),
             ipAddress: auditCtx.ipAddress,
@@ -480,10 +531,6 @@ export class DokusyaImportService {
         );
       });
     } catch (err) {
-      // Phase 4b — cloud 側はロールバック済み。だが既に電子版へ送った cancel は
-      // 取り消されないので、送った分へ補償（cancel_ym 空 ＝ 解約予約の取消）を投げる。
-      // これをしないと「電子版では解約・cloud では購読中」という乖離が残る。
-      await this.compensateBulkStops(pushedKaiinIds, auditCtx);
       // §4.7 — エラーログは standalone 接続（manager なし）でロールバックを生き残らせる。
       await this.auditLog.logError(auditCtx, importOperation, err as Error);
       throw err;
@@ -493,100 +540,140 @@ export class DokusyaImportService {
       data: {
         import_mode: dto.import_mode,
         total_rows: dto.rows.length,
-        created_count: createdCount,
-        updated_count: updatedCount,
-        cancelled_count: cancelledCount,
+        created_count: counts.createdCount,
+        updated_count: counts.updatedCount,
+        cancelled_count: counts.cancelledCount,
         skipped_count: 0,
+        failed_count: 0,
         rireki_count: dto.rows.length,
         imported_at: importedAt,
       },
-      message: '取り込みました。',
+      message: SuccessMessage.IMPORTED,
     };
   }
 
   /**
-   * 一括中止 Phase 3 — 予約を入れた行を電子版へ cancel として送る（顧客要件 2026-08）。
+   * 電子版の書込み — 1行 = 1 tx（不具合修正2026-08）。
    *
-   * 行ループの中で送らないのは、途中失敗したときに「どこまで送ったか」を tx の外へ
-   * 残す必要があるため。tx 内のローカル変数に積むと、ロールバックと一緒に呼び出し側の
-   * catch から見えなくなる。
+   * 電子版は各行の cloud DML と同じ tx 内で denshiban へ push する
+   * （{@link applyImportRow}）。以前は全行を1 tx にまとめていたため、例えば
+   * 15行中10行目で失敗すると tx 全体がロールバックしたが、1〜9行目が既に
+   * denshiban へ push 済み（＝denshiban 側は create/update 成功、cloud 側は
+   * rollback で無かったことに）という「孤児」が残っていた
+   * （旧コメント参照: 「per-record atomic 化と孤児 reconcile は follow-up」）。
    *
-   * 1件でも失敗すれば例外がそのまま上へ抜け tx がロールバックする。cloud 側は
-   * 無かったことになるが、それまでに送った分は `pushedKaiinIds` に残り
-   * {@link compensateBulkStops} が打ち消す。
-   *
-   * 紙版は `pushOnWrite` が対象外として false を返すので、この関数を通っても
-   * 何も送られず `pushedKaiinIds` も空のまま（＝補償も no-op）。種別の分岐を
-   * ここに書かないのは、対象判定を isPushTarget の一箇所に保つため。
+   * 1行1 tx にすることで、この孤児が原理的に発生しなくなる（各行の cloud 書込み
+   * と denshiban push が同じ tx で運命を共にする）。トレードオフとして、取込結果は
+   * 「全行成功」の1択ではなく「成功N件・失敗M件」の部分成功を返せるようになった
+   * （紙版は importExcelAtomic のまま従来どおり全行成功 or 全行失敗）。
    */
-  private async pushBulkStops(
-    manager: EntityManager,
+  private async importExcelPerRow(
     dto: ImportDokusyaDto,
-    targets: ReadonlyArray<{ after: Dokusya }>,
-    pushedKaiinIds: number[],
-  ): Promise<void> {
-    if (targets.length === 0) return;
-    const chushi = dbDateOrNull(dto.dokusya_chushi_date);
-    if (!chushi) return;
-    const cancelYm = chushi.replaceAll('-', '').slice(0, 6);
-
-    for (const t of targets) {
-      const pushed = await this.denshiPush.pushOnWrite(manager, {
-        action: 'cancel',
-        after: t.after,
-        source: 'IMPORT',
-        cancelYm,
-      });
-      // 送れた分だけ控える。会員IDが無い（電子版に未登録）行は push 自体が
-      // skip されるので補償対象にもならない。
-      if (pushed && t.after.denshiKaiinId != null) {
-        pushedKaiinIds.push(Number(t.after.denshiKaiinId));
-      }
-    }
-  }
-
-  /**
-   * 一括中止 Phase 4b — ロールバック後の補償。送信済みの解約予約を打ち消す。
-   *
-   * 電子版APIには「解約取消」専用の処理区分が無いため、ACSMS-SCR-014 の予約取消と同じく
-   * `cancel` に空の `cancel_ym` を送る（顧客判断 2026-08）。
-   *
-   * 補償そのものが失敗した分は救えない。握りつぶすと「電子版だけ解約済み」の会員が
-   * 誰か分からなくなるので、必ず ERROR ログに会員IDを残す（運用が手で戻すための唯一の
-   * 手がかり）。補償の失敗で元の例外を差し替えないよう、ここでは throw しない。
-   */
-  private async compensateBulkStops(
-    pushedKaiinIds: readonly number[],
+    session: SessionPayload,
+    fkMaps: {
+      tankaIdByCode: Map<string, number>;
+      hanbaitenIdByCode: Map<string, number>;
+      kanriShitenIdByCode: Map<string, number>;
+      shitenIdByCode: Map<string, number>;
+    },
     auditCtx: ReturnType<typeof buildAuditCtx>,
-  ): Promise<void> {
-    if (pushedKaiinIds.length === 0) return;
-    this.logger.warn(
-      `bulk-stop rollback: compensating ${pushedKaiinIds.length} pushed cancel(s)`,
-    );
+    importOperation: AuditOperation,
+    importedAt: string,
+  ): Promise<{
+    data: {
+      import_mode: string;
+      total_rows: number;
+      created_count: number;
+      updated_count: number;
+      cancelled_count: number;
+      skipped_count: number;
+      failed_count: number;
+      rireki_count: number;
+      imported_at: string;
+    };
+    message: string;
+    row_errors?: Array<{ row: number; message: string }>;
+  }> {
+    // classifyImportRow (dokusya-import-validator.service.ts) は一括中止行も
+    // 'updated' 扱いにする（cancelled_count は本取込では未使用・常に0）。
+    // ここでも同じ分類基準に揃える。
+    const outcomeKind: 'created' | 'updated' =
+      dto.import_mode === 'NEW' ? 'created' : 'updated';
 
-    const failed: number[] = [];
-    for (const kaiinId of pushedKaiinIds) {
+    let successCount = 0;
+    const rowErrors: Array<{ row: number; message: string }> = [];
+
+    for (const [idx, row] of dto.rows.entries()) {
       try {
-        await this.denshiPush.push(
-          this.dataSource.manager,
-          'cancel',
-          { denshiKaiinId: kaiinId } as Dokusya,
-          { cancelYm: '' },
-        );
-      } catch {
-        failed.push(kaiinId);
+        // 1行 = 1 tx。この行の cloud DML と denshiban push は運命を共にする —
+        // 失敗すればこの行だけロールバックし、他行の成功済み分に一切影響しない。
+        await this.dataSource.transaction(async (manager) => {
+          await this.applyImportRow(manager, dto, row, session, fkMaps);
+        });
+        successCount += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        rowErrors.push({ row: idx + 2, message });
+        this.logger.warn({
+          event: 'import.row_write_failed',
+          import_mode: dto.import_mode,
+          row: idx + 2,
+          message,
+        });
       }
     }
 
-    if (failed.length > 0) {
-      const detail = `電子版で解約予約が残った可能性のある会員ID: ${failed.join(', ')}`;
-      this.logger.error(`bulk-stop compensation failed — ${detail}`);
-      await this.auditLog.logError(
-        auditCtx,
-        AuditOperation.IMPORT_UPDATE_PARTIAL,
-        new Error(`一括中止の補償に失敗しました。${detail}`),
-      );
+    const failedCount = rowErrors.length;
+    const cappedRowErrors = rowErrors.slice(0, IMPORT_ERROR_CAP);
+    // 部分成功は WARNING（全行失敗も含む — importExcel 呼び出し自体は完了して
+    // いるため FAILURE ではなく、行単位の結果は row_errors で個別に伝える）。
+    const resultStatus =
+      failedCount === 0 ? ResultStatus.SUCCESS : ResultStatus.WARNING;
+
+    try {
+      await this.auditLog.logOperation({
+        logType: LogType.USER_OPERATION,
+        accountId: auditCtx.accountId,
+        jaId: auditCtx.jaId,
+        gamenName: auditCtx.screen,
+        operation: importOperation,
+        resultStatus,
+        targetId: null,
+        targetTable: auditCtx.table,
+        afterValue: JSON.stringify({
+          import_mode: dto.import_mode,
+          total_rows: dto.rows.length,
+          success_count: successCount,
+          failed_count: failedCount,
+          row_errors: cappedRowErrors,
+          imported_at: importedAt,
+        }),
+        ipAddress: auditCtx.ipAddress,
+        userAgent: auditCtx.userAgent,
+      });
+    } catch (err) {
+      await this.auditLog.logError(auditCtx, importOperation, err as Error);
+      throw err;
     }
+
+    return {
+      data: {
+        import_mode: dto.import_mode,
+        total_rows: dto.rows.length,
+        created_count: outcomeKind === 'created' ? successCount : 0,
+        updated_count: outcomeKind === 'updated' ? successCount : 0,
+        cancelled_count: 0,
+        skipped_count: 0,
+        failed_count: failedCount,
+        rireki_count: successCount,
+        imported_at: importedAt,
+      },
+      message:
+        failedCount === 0
+          ? SuccessMessage.IMPORTED
+          : `${successCount}件成功、${failedCount}件失敗しました。`,
+      ...(cappedRowErrors.length > 0 ? { row_errors: cappedRowErrors } : {}),
+    };
   }
 
   /**
@@ -597,6 +684,7 @@ export class DokusyaImportService {
   private async buildImportLookups(
     dto: ImportDokusyaDto,
     jaId: number,
+    session: SessionPayload,
   ): Promise<{
     lookups: ImportRowLookups;
     fkMaps: {
@@ -619,6 +707,70 @@ export class DokusyaImportService {
       dto.rows.map((r) => r.kumiaiin_code),
     );
 
+    const { tankaCodeSet, tankaIdByCode, tankaExpiredCodeSet } =
+      await this.resolveTankaLookups(jaId, tankaCodes);
+    const { hanbaitenCodeSet, hanbaitenIdByCode, hanbaitenClosedCodeSet } =
+      await this.resolveHanbaitenLookups(jaId, hanbaitenCodes);
+    const { kanriShitenCodeSet, kanriShitenIdByCode, kanriShitenFlagsByCode } =
+      await this.resolveKanriShitenLookups(jaId, kanriShitenCodes);
+    const { shitenCodeSet, shitenIdByCode, shitenKanriShitenCodeByCode } =
+      await this.resolveShitenLookups(jaId, shitenCodes);
+    const { ownKanriShitenCode, ownShitenCode } =
+      await this.resolveOwnScopeCodes(session);
+    const existingRows = await this.resolveExistingDokusyaRows(
+      jaId,
+      dokusyaIds,
+      kumiaiinCodes,
+    );
+    const { existingById, existingByKumiaiin, kumiaiinCounts } =
+      this.buildExistingDokusyaMaps(existingRows);
+    const existingDigitalEmailToIds =
+      await this.resolveExistingDigitalEmailLookups();
+    const sameDateActiveDokusyaIds = await this.resolveSameDateActiveDokusyaIds(
+      dto,
+      existingRows,
+    );
+
+    const lookups: ImportRowLookups = {
+      existingById,
+      existingByKumiaiin,
+      kumiaiinCounts,
+      tankaCodeSet,
+      tankaExpiredCodeSet,
+      hanbaitenCodeSet,
+      hanbaitenIdByCode,
+      hanbaitenClosedCodeSet,
+      kanriShitenCodeSet,
+      shitenCodeSet,
+      kanriShitenFlagsByCode,
+      shitenKanriShitenCodeByCode,
+      ownKanriShitenCode,
+      ownShitenCode,
+      existingDigitalEmailToIds,
+      sameDateActiveDokusyaIds,
+      hasCode: (category, value) => this.codeService.has(category, value),
+    };
+
+    return {
+      lookups,
+      fkMaps: {
+        tankaIdByCode,
+        hanbaitenIdByCode,
+        kanriShitenIdByCode,
+        shitenIdByCode,
+      },
+    };
+  }
+
+  /** §4.3 単価コード → 存在/失効チェック用 lookups。 */
+  private async resolveTankaLookups(
+    jaId: number,
+    tankaCodes: string[],
+  ): Promise<{
+    tankaCodeSet: Set<string>;
+    tankaIdByCode: Map<string, number>;
+    tankaExpiredCodeSet: Set<string>;
+  }> {
     const tankaRows: Array<Record<string, unknown>> =
       tankaCodes.length === 0
         ? []
@@ -641,7 +793,18 @@ export class DokusyaImportService {
         .filter((r) => r.active_flg === false)
         .map((r) => String(r.tanka_code)),
     );
+    return { tankaCodeSet, tankaIdByCode, tankaExpiredCodeSet };
+  }
 
+  /** §4.3 販売店コード → 存在/廃店チェック用 lookups。 */
+  private async resolveHanbaitenLookups(
+    jaId: number,
+    hanbaitenCodes: string[],
+  ): Promise<{
+    hanbaitenCodeSet: Set<string>;
+    hanbaitenIdByCode: Map<string, number>;
+    hanbaitenClosedCodeSet: Set<string>;
+  }> {
     const hanbaitenRows: Array<Record<string, unknown>> =
       hanbaitenCodes.length === 0
         ? []
@@ -667,12 +830,27 @@ export class DokusyaImportService {
         .filter((r) => r.haiten_flg === true)
         .map((r) => String(r.hanbaiten_code)),
     );
+    return { hanbaitenCodeSet, hanbaitenIdByCode, hanbaitenClosedCodeSet };
+  }
 
+  /** §4.3 管理支店コード → 存在/取扱いフラグ lookups（[layer4-scope-guard]）。 */
+  private async resolveKanriShitenLookups(
+    jaId: number,
+    kanriShitenCodes: string[],
+  ): Promise<{
+    kanriShitenCodeSet: Set<string>;
+    kanriShitenIdByCode: Map<string, number>;
+    kanriShitenFlagsByCode: Map<
+      string,
+      { paperFlg: boolean; denshiFlg: boolean }
+    >;
+  }> {
     const kanriShitenRows: Array<Record<string, unknown>> =
       kanriShitenCodes.length === 0
         ? []
         : await this.dataSource.query(
-            `SELECT kanri_shiten_id, kanri_shiten_code FROM m_kanri_shiten
+            `SELECT kanri_shiten_id, kanri_shiten_code, paper_flg, denshi_flg
+               FROM m_kanri_shiten
               WHERE ja_id = $1 AND kanri_shiten_code = ANY($2::text[])
                 AND deleted_at IS NULL`,
             [jaId, kanriShitenCodes],
@@ -688,14 +866,37 @@ export class DokusyaImportService {
         Number(r.kanri_shiten_id),
       ]),
     );
+    // [layer4-scope-guard] 管理支店自体の取扱いフラグ（顧客要件2026-08）—
+    // アカウントの取扱いフラグ(m_account)とは別に、指定された管理支店自身が
+    // その購読種別を取り扱っているかを見る。
+    const kanriShitenFlagsByCode = new Map(
+      kanriShitenRows.map((r) => [
+        String(r.kanri_shiten_code),
+        { paperFlg: r.paper_flg === true, denshiFlg: r.denshi_flg === true },
+      ]),
+    );
+    return { kanriShitenCodeSet, kanriShitenIdByCode, kanriShitenFlagsByCode };
+  }
 
+  /** §4.3 支店コード → 存在/所属管理支店 lookups（[layer4-scope-guard]）。 */
+  private async resolveShitenLookups(
+    jaId: number,
+    shitenCodes: string[],
+  ): Promise<{
+    shitenCodeSet: Set<string>;
+    shitenIdByCode: Map<string, number>;
+    shitenKanriShitenCodeByCode: Map<string, string | null>;
+  }> {
     const shitenRows: Array<Record<string, unknown>> =
       shitenCodes.length === 0
         ? []
         : await this.dataSource.query(
-            `SELECT shiten_id, shiten_code FROM m_shiten
-              WHERE ja_id = $1 AND shiten_code = ANY($2::text[])
-                AND deleted_at IS NULL`,
+            `SELECT s.shiten_id, s.shiten_code, ks.kanri_shiten_code
+               FROM m_shiten s
+               LEFT JOIN m_kanri_shiten ks
+                 ON ks.kanri_shiten_id = s.kanri_shiten_id AND ks.deleted_at IS NULL
+              WHERE s.ja_id = $1 AND s.shiten_code = ANY($2::text[])
+                AND s.deleted_at IS NULL`,
             [jaId, shitenCodes],
           );
     const shitenCodeSet = new Set(
@@ -704,35 +905,111 @@ export class DokusyaImportService {
     const shitenIdByCode = new Map(
       shitenRows.map((r) => [String(r.shiten_code), Number(r.shiten_id)]),
     );
+    // [layer4-scope-guard] 支店 → 所属する管理支店コード（顧客要件2026-08）。
+    // 自管理支店に固定されたアカウントが、自管理支店配下でない支店コードを
+    // 指定していないか検証するのに使う。
+    const shitenKanriShitenCodeByCode = new Map<string, string | null>(
+      shitenRows.map((r) => [
+        String(r.shiten_code),
+        r.kanri_shiten_code == null ? null : String(r.kanri_shiten_code),
+      ]),
+    );
+    return { shitenCodeSet, shitenIdByCode, shitenKanriShitenCodeByCode };
+  }
 
-    // §4.3.4 — 既存 dokusya（UPDATE_* / 一括中止）。dokusya_id or kumiaiin_code キー、
-    // ja_id スコープ。
-    const existingRows: Array<Record<string, unknown>> =
-      dokusyaIds.length === 0 && kumiaiinCodes.length === 0
-        ? []
-        : await this.dataSource.query(
-            // 帳票影響項目（REPORT_FIELD_PAIRS の12項目）も読む。当日変更の制限判定
-            // (collectTodayModeReportViolations) は「既存値と違うか」で判断するため、
-            // 既存値が無いと Excel 側の値が undefined と比較され、値が同じ行でも
-            // 常に「変更あり」になってしまう（＝紙版の当日取込が理由なく弾かれる）。
-            `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id, shiten_id,
-                    dokusya_shubetsu, email, hanbaiten_id,
-                    dokusya_kaishi_date, dokusya_chushi_date, seikyu_kaishi_month,
-                    dokusya_busu,
-                    yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
-                    haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
-                    haitatsu_chome_banchi, haitatsu_tatemono_mei
-               FROM t_dokusya
-              WHERE ja_id = $1
-                AND (dokusya_id = ANY($2::bigint[])
-                     OR kumiaiin_code = ANY($3::text[]))
-                AND deleted_at IS NULL`,
-            [jaId, dokusyaIds, kumiaiinCodes],
-          );
-    // 顧客要件 2026-08（#56568）— メール一意性は電子版(2)・併読(3) レコード間で
-    // **JA を跨いで全件**担保する（電子版ではメールが会員の同定キーのため）。
-    // 紙版は重複可で対象外。論理削除済みは再利用できるので除外。
-    // NEW 行が既存電子版メールを再利用するケースも検知できるよう全件読む。
+  /**
+   * [layer4-scope-guard] ログイン中アカウント自身の管理支店/支店コード
+   * （session は id しか持たないため、エラーメッセージ表示用にコードへ逆引き
+   * する。顧客要件2026-08）。
+   */
+  private async resolveOwnScopeCodes(
+    session: SessionPayload,
+  ): Promise<{ ownKanriShitenCode: string | null; ownShitenCode: string | null }> {
+    let ownKanriShitenCode: string | null = null;
+    if (session.kanri_shiten_id != null) {
+      const rows: Array<{ kanri_shiten_code: string }> =
+        await this.dataSource.query(
+          `SELECT kanri_shiten_code FROM m_kanri_shiten WHERE kanri_shiten_id = $1 AND deleted_at IS NULL`,
+          [session.kanri_shiten_id],
+        );
+      ownKanriShitenCode = rows[0]?.kanri_shiten_code ?? null;
+    }
+    let ownShitenCode: string | null = null;
+    if (session.shiten_id != null) {
+      const rows: Array<{ shiten_code: string }> = await this.dataSource.query(
+        `SELECT shiten_code FROM m_shiten WHERE shiten_id = $1 AND deleted_at IS NULL`,
+        [session.shiten_id],
+      );
+      ownShitenCode = rows[0]?.shiten_code ?? null;
+    }
+    return { ownKanriShitenCode, ownShitenCode };
+  }
+
+  /**
+   * §4.3.4 — 既存 dokusya（UPDATE_* / 一括中止）。dokusya_id or kumiaiin_code
+   * キー、ja_id スコープ。
+   */
+  private async resolveExistingDokusyaRows(
+    jaId: number,
+    dokusyaIds: number[],
+    kumiaiinCodes: string[],
+  ): Promise<Array<Record<string, unknown>>> {
+    if (dokusyaIds.length === 0 && kumiaiinCodes.length === 0) return [];
+    // 帳票影響項目（REPORT_FIELD_PAIRS の12項目）も読む。当日変更の制限判定
+    // (collectTodayModeReportViolations) は「既存値と違うか」で判断するため、
+    // 既存値が無いと Excel 側の値が undefined と比較され、値が同じ行でも
+    // 常に「変更あり」になってしまう（＝紙版の当日取込が理由なく弾かれる）。
+    return this.dataSource.query(
+      `SELECT dokusya_id, kumiaiin_code, ja_id, kanri_shiten_id, shiten_id,
+              dokusya_shubetsu, email, hanbaiten_id,
+              dokusya_kaishi_date, dokusya_chushi_date, seikyu_kaishi_month,
+              dokusya_busu,
+              yubin_no, todofuken_code, shikuchoson, chome_banchi, tatemono_mei,
+              haitatsu_yubin_no, haitatsu_todofuken_code, haitatsu_shikuchoson,
+              haitatsu_chome_banchi, haitatsu_tatemono_mei
+         FROM t_dokusya
+        WHERE ja_id = $1
+          AND (dokusya_id = ANY($2::bigint[])
+               OR kumiaiin_code = ANY($3::text[]))
+          AND deleted_at IS NULL`,
+      [jaId, dokusyaIds, kumiaiinCodes],
+    );
+  }
+
+  /**
+   * 組合員コードは重複可。kumiaiin_code キーで更新/解約時に複数ヒットすると
+   * 一括誤更新するため、件数を数え 2 件以上なら行エラー（ID 指定を促す）。
+   */
+  private buildExistingDokusyaMaps(
+    existingRows: Array<Record<string, unknown>>,
+  ): {
+    existingById: Map<number, Record<string, unknown>>;
+    existingByKumiaiin: Map<string, Record<string, unknown>>;
+    kumiaiinCounts: Map<string, number>;
+  } {
+    const existingById = new Map<number, Record<string, unknown>>();
+    const existingByKumiaiin = new Map<string, Record<string, unknown>>();
+    const kumiaiinCounts = new Map<string, number>();
+    for (const row of existingRows) {
+      existingById.set(Number(row.dokusya_id), row);
+      if (row.kumiaiin_code != null) {
+        const code = String(asScalar(row.kumiaiin_code));
+        existingByKumiaiin.set(code, row);
+        kumiaiinCounts.set(code, (kumiaiinCounts.get(code) ?? 0) + 1);
+      }
+    }
+    return { existingById, existingByKumiaiin, kumiaiinCounts };
+  }
+
+  /**
+   * 顧客要件 2026-08（#56568）— メール一意性は電子版(2)・併読(3) レコード間で
+   * **JA を跨いで全件**担保する（電子版ではメールが会員の同定キーのため）。
+   * 紙版は重複可で対象外。論理削除済みは再利用できるので除外。
+   * NEW 行が既存電子版メールを再利用するケースも検知できるよう全件読む。
+   */
+  private async resolveExistingDigitalEmailLookups(): Promise<
+    Map<string, Set<number>>
+  > {
     const digitalEmailRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
         `SELECT dokusya_id, email
@@ -750,36 +1027,32 @@ export class DokusyaImportService {
       if (set) set.add(id);
       else existingDigitalEmailToIds.set(email, new Set([id]));
     }
+    return existingDigitalEmailToIds;
+  }
 
-    const existingById = new Map<number, Record<string, unknown>>();
-    const existingByKumiaiin = new Map<string, Record<string, unknown>>();
-    // 組合員コードは重複可。kumiaiin_code キーで更新/解約時に複数ヒットすると
-    // 一括誤更新するため、件数を数え 2 件以上なら行エラー（ID 指定を促す）。
-    const kumiaiinCounts = new Map<string, number>();
-    for (const row of existingRows) {
-      existingById.set(Number(row.dokusya_id), row);
-      if (row.kumiaiin_code != null) {
-        const code = String(asScalar(row.kumiaiin_code));
-        existingByKumiaiin.set(code, row);
-        kumiaiinCounts.set(code, (kumiaiinCounts.get(code) ?? 0) + 1);
-      }
-    }
-
-    // [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回まで
-    // に制限する（顧客要件2026-08）。取込の joho はペイロード直下（全行共通）
-    // なので、対象 dokusya_id 全件に対して1回のクエリで済む。電子版/当日/NEW は
-    // 対象外（joho が無いか本日固定のため空集合のまま）。
+  /**
+   * [reserved-same-date] 紙版の予約変更（未来日）は同一適用日への変更を1回まで
+   * に制限する（顧客要件2026-08）。取込の joho はペイロード直下（全行共通）
+   * なので、対象 dokusya_id 全件に対して1回のクエリで済む。電子版/当日/NEW は
+   * 対象外（joho が無いか本日固定のため空集合のまま）。
+   */
+  private async resolveSameDateActiveDokusyaIds(
+    dto: ImportDokusyaDto,
+    existingRows: Array<Record<string, unknown>>,
+  ): Promise<Set<number>> {
     const sameDateActiveDokusyaIds = new Set<number>();
     const importJoho = String(dto.joho_henko_tekiyo_date ?? '').trim();
-    if (
+    const shouldCheck =
       dto.import_mode === 'UPDATE' &&
       Number(dto.dokusya_shubetsu) === DokusyaShubetsu.PAPER &&
       importJoho &&
       importJoho !== todayIsoJst() &&
-      existingRows.length > 0
-    ) {
-      const targetIds = existingRows.map((r) => Number(r.dokusya_id));
-      const sameDateRows: Array<{ dokusya_id: number }> = await this.dataSource.query(
+      existingRows.length > 0;
+    if (!shouldCheck) return sameDateActiveDokusyaIds;
+
+    const targetIds = existingRows.map((r) => Number(r.dokusya_id));
+    const sameDateRows: Array<{ dokusya_id: number }> =
+      await this.dataSource.query(
         `SELECT DISTINCT dokusya_id
            FROM t_dokusya_rireki
           WHERE dokusya_id = ANY($1::bigint[])
@@ -788,34 +1061,8 @@ export class DokusyaImportService {
             AND shinki_flg = false`,
         [targetIds, importJoho],
       );
-      for (const r of sameDateRows) sameDateActiveDokusyaIds.add(Number(r.dokusya_id));
-    }
-
-    const lookups: ImportRowLookups = {
-      existingById,
-      existingByKumiaiin,
-      kumiaiinCounts,
-      tankaCodeSet,
-      tankaExpiredCodeSet,
-      hanbaitenCodeSet,
-      hanbaitenIdByCode,
-      hanbaitenClosedCodeSet,
-      kanriShitenCodeSet,
-      shitenCodeSet,
-      existingDigitalEmailToIds,
-      sameDateActiveDokusyaIds,
-      hasCode: (category, value) => this.codeService.has(category, value),
-    };
-
-    return {
-      lookups,
-      fkMaps: {
-        tankaIdByCode,
-        hanbaitenIdByCode,
-        kanriShitenIdByCode,
-        shitenIdByCode,
-      },
-    };
+    for (const r of sameDateRows) sameDateActiveDokusyaIds.add(Number(r.dokusya_id));
+    return sameDateActiveDokusyaIds;
   }
 
   // ─── private helpers (SCR-016) ───────────────────────────────────────
@@ -932,11 +1179,20 @@ export class DokusyaImportService {
     const intOrNull = (v: unknown): number | null =>
       v === undefined || v === null || v === '' ? null : Number(v);
     const kaishiDate = normalizeDbDate(str(row.dokusya_kaishi_date));
+    // [layer4-scope-guard] 所属支店/管理支店が session で固定されたアカウント
+    // (JA管理支店)は、Excel の kanri_shiten_code/shiten_code 列に関わらず自分の
+    // 管理支店/支店へ固定する（顧客要件2026-08・UI create の buildInsertPayload と
+    // 同じ優先順位: session 固定 > 行の指定 > NULL）。不具合修正2026-08 —
+    // 以前は行の code をそのまま解決していたため、JA管理支店アカウントが
+    // 同一JA内の別管理支店/支店コードを含む行を取込むと自分の担当範囲外へ
+    // 読者を作成できてしまっていた（buildImportLookups は JA 単位のみで絞り込み）。
+    const rowKanriShitenId =
+      fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null;
+    const rowShitenId = fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null;
     const values: DokusyaFields = {
       jaId: Number(session.ja_id ?? 0),
-      kanriShitenId:
-        fkMaps.kanriShitenIdByCode.get(str(row.kanri_shiten_code)) ?? null,
-      shitenId: fkMaps.shitenIdByCode.get(str(row.shiten_code)) ?? null,
+      kanriShitenId: session.kanri_shiten_id ?? rowKanriShitenId,
+      shitenId: session.shiten_id ?? rowShitenId,
       kumiaiinCode: str(row.kumiaiin_code),
       dokusyaShubetsu: intOrNull(row.dokusya_shubetsu),
       // NEW は手続種類=新規(1)固定（顧客要件 2026-06）。
@@ -1025,7 +1281,7 @@ export class DokusyaImportService {
   /**
    * UPDATE 取込行の対象 dokusya_id を呼出元 JA 内で解決（dokusya_id 優先、なければ
    * kumiaiin_code）。該当なしは null（履歴スキップ＝旧 RETURNING null と同義）。
-   * 行存在は上流で検証済みのため miss は通常経路でない。
+   * 行存在は上流（validator）で検証済みのため miss は通常経路でない。
    *
    * [誤更新防止・バグ報告2026-08] `kumiaiin_code` は UNIQUE 制約が無く同一JA内で
    * 重複しうる（screen-design.md「更新モードでIDが空のときの代替キー」）。旧実装は
@@ -1038,11 +1294,20 @@ export class DokusyaImportService {
    * 変更が誤った購読者の履歴に積み上がっていた（`isAmbiguousKumiaiinKey` は
    * dokusya_id 未指定の行だけを弾くため、この2クエリを分けないと防げない）。
    * dokusya_id が指定されている行は kumiaiin_code を一切参照せず、それだけで絞り込む。
+   *
+   * [id-required-on-update・多層防御・不具合修正2026-08] `kumiaiin_code` フォールバックは
+   * 一括中止（`isBulkStop`）のときだけ許可する。通常更新（`joho_henko_tekiyo_date`
+   * 指定）で `dokusya_id` が無い行は validator（`classifyImportRow`）が既に
+   * 「IDは必須です。」で弾いており通常この分岐には到達しないが、書込み層自身も
+   * 同じ条件を独立に守ることで、将来 validator 側の呼び出し漏れ・改修ミスがあっても
+   * 書込み層だけで誤爆（意図しない kumiaiin_code 突合）を防げるようにする
+   * （validator 一箇所だけに頼らない多層防御）。
    */
   private async resolveImportTargetId(
     manager: EntityManager,
     jaId: number,
     row: ImportDokusyaRowDto,
+    isBulkStop: boolean,
   ): Promise<number | null> {
     const hasDokusyaId =
       row.dokusya_id !== undefined &&
@@ -1057,6 +1322,9 @@ export class DokusyaImportService {
       );
       return this.extractReturnedDokusyaId(found);
     }
+    // 通常更新で dokusya_id が無い行は、たとえ kumiaiin_code が一意でも解決しない
+    // （validator が先に弾いているはずだが、ここでも独立に守る）。
+    if (!isBulkStop) return null;
     const kumiaiin =
       row.kumiaiin_code === undefined || row.kumiaiin_code === null
         ? ''
@@ -1160,8 +1428,6 @@ export class DokusyaImportService {
       kanriShitenIdByCode: Map<string, number>;
       shitenIdByCode: Map<string, number>;
     },
-    /** 一括中止で push 待ちの行を積む先（呼び出し側が Phase 3 でまとめて送る）。 */
-    pendingStopPushes: Array<{ after: Dokusya }> = [],
   ): Promise<void> {
     const updatedBy = String(session.account_id);
     const jaId = Number(session.ja_id ?? 0);
@@ -1184,6 +1450,15 @@ export class DokusyaImportService {
     // NEW は下の分岐で applyChange を呼び return 済み。
 
     if (dto.import_mode === 'NEW') {
+      // 紙版→paper_flg / 電子版→denshi_flg 必須 (account_concept.md §139-145)。
+      // 不具合修正2026-08 — 画面登録(DokusyaService.create)は行の購読種別ごとに
+      // このチェックを通すが、取込は importExcel 冒頭の assertAnyDokusyaFlag
+      // （「どちらか1つでもあれば可」）しか呼んでいなかったため、紙版のみの
+      // アカウントが電子版読者を一括取込できてしまっていた（逆も同様）。
+      await this.accountFlags.assertShubetsuFlag(
+        Number(row.dokusya_shubetsu),
+        session,
+      );
       // NEW は共通ライタ applyChange(CREATE) に集約 (S3.2)。master 作成 + rireki #1
       // (shinki) + recomputeMaster(当日) を1 tx で実行し UI create と履歴生成を統一。
       // joho は購読開始日に揃える（顧客要件 — UI create の当日基準と異なり実開始日）。
@@ -1221,11 +1496,13 @@ export class DokusyaImportService {
 
     // 一括中止 — 中止日が指定された取込は「解約予約を入れる」だけの操作
     // （顧客要件 2026-08）。他の列は書かない（画面も列グリッドをキー列へ縮退させる）。
-    // 電子版への cancel push は行ループでは行わず、DML を全行終えてから
-    // まとめて送る（importExcel 側の Phase 3）— 途中失敗時に「送った分だけ」
-    // 補償する必要があり、行ごとに送ると送信済みの記録が tx と一緒に消えるため。
+    // 電子版への cancel push はこの行の tx 内で即座に送る（不具合修正2026-08 —
+    // create/update と同じタイミングに統一。importExcel が電子版バッチを1行1
+    // トランザクションで処理するようになったため、「送信済み分だけ後で補償する」
+    // 旧来の仕組み（pendingStopPushes 経由でまとめ送信）はもう不要 — この行が
+    // 失敗すればこの行の tx だけロールバックし、他行の送信済み分に影響しない。
     if (bulkStopChushi) {
-      const stopId = await this.resolveImportTargetId(manager, jaId, row);
+      const stopId = await this.resolveImportTargetId(manager, jaId, row, true);
       if (stopId == null) return;
       await this.rireki.lockDokusyaRow(manager, stopId);
       const result = await insertScheduledKaiyaku(manager, {
@@ -1235,7 +1512,13 @@ export class DokusyaImportService {
         actor: updatedBy,
       });
       await manager.update(Dokusya, { dokusyaId: stopId }, { updatedBy });
-      pendingStopPushes.push({ after: result.after });
+      const cancelYm = bulkStopChushi.replaceAll('-', '').slice(0, 6);
+      await this.denshiPush.pushOnWrite(manager, {
+        action: 'cancel',
+        after: result.after,
+        source: 'IMPORT',
+        cancelYm,
+      });
       return;
     }
 
@@ -1244,7 +1527,7 @@ export class DokusyaImportService {
     // 全列更新は FE が全列を selected_columns に含めて実現。販売店含む全変更は単一適用日
     // (joho) で1履歴行にまとめる（顧客要件 2026-07: 販売店適用日を廃止・UI/置換と同ロジック）。
     // 配達先データあり(hasHaitatsuData)は forceZougen で増減報告対象。NEW は上で return 済み。
-    const dokusyaId = await this.resolveImportTargetId(manager, jaId, row);
+    const dokusyaId = await this.resolveImportTargetId(manager, jaId, row, false);
     if (dokusyaId == null) return; // 該当なし → 履歴なし（従来の RETURNING null と同義）
     // [rireki-no-race] 採番前に master 行をロック（UI update と同じ直列化）。
     await this.rireki.lockDokusyaRow(manager, dokusyaId);
@@ -1257,6 +1540,10 @@ export class DokusyaImportService {
         select: ['dokusyaShubetsu'],
       })
     )?.dokusyaShubetsu;
+    // 紙版→paper_flg / 電子版→denshi_flg 必須（DokusyaService.update と同じ境界・
+    // 不具合修正2026-08）。対象レコードの実際の購読種別（Excel 行の値は編集不可の
+    // 参考値でしかない）で判定する。
+    await this.accountFlags.assertShubetsuFlag(Number(targetShubetsu), session);
     // 適用日は payload 直下（1ファイル1つ）。電子版は画面で当日固定・省略可のため
     // 未指定なら当日を補う（従来の行単位フォールバックと同じ意味）。
     const updateJoho = dbDateOrNull(dto.joho_henko_tekiyo_date) ?? todayIsoJst();

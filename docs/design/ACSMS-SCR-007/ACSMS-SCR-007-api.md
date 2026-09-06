@@ -182,7 +182,7 @@ GET /api/v1/shiten/1
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`shiten.view` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - 対象ロール：NICHINO_ADMIN（日農管理者・顧客CR 2026-08-24）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得
@@ -406,7 +406,7 @@ Content-Type: application/json
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`shiten.create` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - 対象ロール：NICHINO_ADMIN（日農管理者・顧客CR 2026-08-24）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 (`FORBIDDEN`)
 
 ### 4.3 管理支店IDの検証・重複チェック
@@ -703,7 +703,7 @@ Content-Type: application/json
 
 - 認証失敗の場合：HTTP 401 (`UNAUTHORIZED`)
 - 権限チェック：`shiten.update` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - 対象ロール：NICHINO_ADMIN（日農管理者・顧客CR 2026-08-24）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - フィールドレベル制限：ロールに応じて編集可能なフィールドをフィルタリングする
   （詳細は §4.4.1 参照）。
   - NICHINO_ADMIN / NICHINO_STAFF / CHUOKAI / JA_HONTEN：全カラム編集可能

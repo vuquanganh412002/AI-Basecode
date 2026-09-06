@@ -33,14 +33,16 @@ const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173';
 
 **Why**: missing-env failures crash loudly at boot (`assertProductionSecrets()` rejects `NODE_ENV=production` with default/missing secrets); `.env.example` discovers required keys for new devs; renaming an env var is a one-file change; AWS Secrets Manager wiring lives next to the rest of the config.
 
-### Two acceptable exceptions for direct `process.env`
+### Acceptable exceptions for direct `process.env`
 
 | Case | File | Why exempted |
 |---|---|---|
 | TypeORM CLI DataSource | [`src/database/data-source.ts`](../../apps/backend/src/database/data-source.ts) | `migration:generate / run / revert` runs outside Nest DI — no ConfigService available. Defaults MUST stay in sync with `configuration.ts` (e.g. `DB_NAME` default `'agrinews_dev'` matches both files). |
-| Standalone CLI scripts | [`scripts/seed.ts`](../../apps/backend/scripts/seed.ts) | One-shot scripts invoked via `npm run seed` — no Nest app boots. Document each `INITIAL_ADMIN_*` env in `.env.example` under a clearly-marked "only used by CLI scripts" block. |
+| Standalone CLI scripts | [`scripts/seed-admin.ts`](../../apps/backend/scripts/seed-admin.ts) | One-shot scripts invoked via `npm run seed:admin` — no Nest app boots. Document each `INITIAL_ADMIN_*` env in `.env.example` under a clearly-marked "only used by CLI scripts" block. |
+| Bootstrap env helper | [`src/common/utils/env.ts`](../../apps/backend/src/common/utils/env.ts) | `NODE_ENV` is needed before the ConfigModule exists (env-file selection in `app.module.ts`). `env.ts` (`nodeEnv()` / `isNodeEnv()`) is the SINGLE centralized reader for that bootstrap need — `app.module.ts` and `configuration.ts` route through it instead of touching `process.env` directly. |
+| Swagger export CLI | [`src/swagger-export.ts`](../../apps/backend/src/swagger-export.ts) | One-shot doc generator invoked via `npm run swagger:export` — reads `SWAGGER_OUT` only to override the output path. Not part of the running server; no ConfigService needed. |
 
-Anywhere else, `grep "process.env" apps/backend/src --include='*.ts'` should return ZERO hits (verified post each change).
+Anywhere else, `grep "process.env" apps/backend/src --include='*.ts'` should return only these four files (verified post each change).
 
 ### Production secret enforcement
 
@@ -358,6 +360,63 @@ await request(app).post(apiUrl('auth/login')).send(body);   // → /api/v1/auth/
 
 NEVER constantize individual route paths into a `route-table.ts` map (`API_ROUTES.AUTH.LOGIN = 'login'`). It harms readability at the call site, requires duplicate path-pattern + concrete-URL helpers for `:id` parameters, weakens integration tests (asserting a constant matches itself instead of the HTTP contract), and Swagger already provides central URL discovery via `/api/docs` + `npm run swagger:export`.
 
+### WAF body-inspection bypass — upload/import path naming convention (MANDATORY)
+
+Any endpoint that accepts a **large binary body** (multipart file upload) or a
+**large free-text JSON body** (bulk Excel/CSV import — hundreds/thousands of
+rows of names, addresses, 備考) will be **intermittently blocked at the
+CloudFront WAF**. AWS managed rules (`CrossSiteScripting_BODY`, the SQLi group,
+`KnownBadInputs`) inspect the first ~8 KB of the body; random binary bytes — or
+a free-text row containing `'`, `<`, `>`, `--`, `;` — match an XSS/SQLi
+signature and the request is dropped with a 403. (The SPA-fallback masks that
+403 as a 200 + index.html, so the browser sees a "silent" success that never
+reached the backend — doubly confusing.)
+
+The WAF carries ONE priority-0 terminating-ALLOW rule that exempts these paths
+from managed inspection, driven by a **convention regex** (in
+`agrinews-terraform`, `modules/waf` var `upload_bypass_uri_regex`, set per env
+to `^/api/v1/(.+/)?(import|upload|file-upload)$`). The rule auto-covers any
+future endpoint **that follows the naming convention** — no terraform change
+needed.
+
+**Convention — the LAST path segment of an upload/import route MUST be one of:**
+
+| Last segment | Use for | Example |
+|---|---|---|
+| `file-upload` | multipart binary upload | `POST /api/v1/file-upload` |
+| `import` | bulk Excel/CSV row import (JSON body) | `POST /api/v1/dokusya/import`, `POST /api/v1/hanbaiten/import` |
+| `upload` | other large-body upload (reserved) | `POST /api/v1/<resource>/upload` |
+
+Rules for new endpoints:
+
+- **Name the route by the convention** so the WAF regex covers it
+  automatically. `POST /api/v1/dokusya/import` ✅. `POST /api/v1/dokusya/bulk`
+  ❌ — the regex won't match `bulk`, and the endpoint will be silently blocked
+  in prod the first time someone imports content that trips a managed rule.
+- The bypass is **method-gated to POST**. A `GET` list on the same path
+  (e.g. `GET /api/v1/file-upload`) still gets full managed inspection +
+  rate-limiting — correct, since list responses don't carry a risky body.
+- The bypass removes ONLY managed body inspection for that path. Each endpoint
+  is STILL protected by `SessionAuthGuard` + `PermissionsGuard` +
+  per-endpoint `@Permissions('…')`, and the service still validates the DTO and
+  uses parameterized TypeORM queries — so the lost WAF layer is redundant, not
+  load-bearing.
+- **App-layer replacements for what the bypass removed** (the edge no longer
+  rate-limits or IP-filters these paths, so the app must):
+  1. **Rate-limit**: add a stricter `@Throttle({ default: { limit, ttl } })`
+     on each bypassed endpoint (upload 20/min, import 10/min) — tighter than
+     the global 100/min. Relies on `app.set('trust proxy', n)` in `main.ts`
+     (`app.trustProxyHops` config, =2 behind CloudFront→ALB) so `req.ip` is the
+     real viewer IP, not the ALB — otherwise every request shares one throttle
+     bucket and the audit-log IP is wrong.
+- If a new endpoint genuinely **cannot** follow the convention (third-party
+  contract dictates the path), update `upload_bypass_uri_regex` in all three
+  env files (`envs/{dev,stg,prod}/main.tf`) to add the path — keep the regex
+  **anchored** (`^…$`) and specific. NEVER widen it toward a bare `/api/v1`
+  prefix: `allow` is terminating, so that would also disable the rate-limit and
+  IP-reputation rules for the entire API, including `/api/v1/auth/*` (the prime
+  brute-force target).
+
 ### HTTP Methods & Status Codes
 
 | Method | Usage | Success |
@@ -607,12 +666,12 @@ export class PaginationDto {
 
 ## Master code values (m_code)
 
-The project stores enumerated values (性別, 単価種類, 支払方法, ログ種別, お知らせ種別 … 21 categories) in the `m_code` table — NOT as PostgreSQL ENUM types or TypeScript `enum` classes. Seeder data lives in `docs/database/seeder.md §5`.
+The project stores enumerated values (性別, 単価種類, 支払方法, ログ種別, お知らせ種別 … 23 categories) in the `m_code` table — NOT as PostgreSQL ENUM types or TypeScript `enum` classes. Seeder data lives in `docs/database/seeder.md §5`.
 
 ### Rules (mandatory)
 
 - Column that stores a code value is typed `INTEGER` (or `VARCHAR` when DB schema says so), NOT `@Column({ type: 'enum' })`.
-- The 21 categories split into two groups by whether the values participate in branching logic. Both share the `m_code` table for the customer-editable label, but differ in whether a TS enum exists alongside.
+- The 23 categories split into two groups by whether the values participate in branching logic. Both share the `m_code` table for the customer-editable label, but differ in whether a TS enum exists alongside.
 - `CodeService` caches the full `m_code` table in memory at `onModuleInit()` and exposes `getAll()`, `getByCategory()`, `has()`, `getLabel()`. It is `@Global()`, so any module can inject it without re-importing.
 - `CodeController` (`GET /api/v1/codes`) returns the cached map; FE calls this once per session and caches in Pinia. The controller does NOT accept mutations — m_code is seeded, not CRUD'd (yet).
 - Never query `m_code` directly from a feature module's repo/service. Always go through `CodeService`.
@@ -636,6 +695,11 @@ Current Group A categories (commit-time list — extend when adding):
 | `OTP_TYPE` | `OtpType` | `t_mfa_otp.otp_type` |
 | `OSHIRASE_STATUS` | `OshiraseStatus` | `t_oshirase.status` |
 | `PUBLISH_LOCATION` | `PublishLocation` | `t_oshirase.publish_location` |
+| `DOKUSYA_SHUBETSU` | `DokusyaShubetsu` | `t_dokusya_rireki.dokusya_shubetsu` |
+| `SHIHARAI_HOHO` | `ShiharaiHoho` | `t_dokusya_rireki.shiharai_hoho` |
+| `ITAKU_KUBUN` | `ItakuKubun` | `m_hanbaiten.itaku_kubun` |
+| `DOKUSYASO_BUNRUI` | `DokusyasoBunrui` | `t_dokusya.dokusyaso_bunrui` |
+| `NOGYOSYA_BUNRUI` | `NogyosyaBunrui` | `t_dokusya.nogyosya_bunrui` |
 
 File pattern (`const … as const` + derived type):
 
@@ -875,6 +939,20 @@ Operation timezone is **Asia/Tokyo (JST)** end-to-end:
   which honours the browser TZ; for JP-only deployments this is fine,
   for cross-region clients add `dayjs.tz('Asia/Tokyo')` via the timezone
   plugin.
+
+**Date-only "today" comparisons → `todayIsoJst()`** (from
+[`@/common/utils/datetime`](../../apps/backend/src/common/utils/datetime.ts)).
+Any guard comparing a `YYYY-MM-DD` value against "today" (情報変更適用日
+past-date guard, 公開日 not-past, etc.) MUST use `todayIsoJst()`, NEVER
+`new Date().toISOString().slice(0, 10)`. The latter returns the **UTC**
+date, so between 00:00–09:00 JST it is yesterday → an off-by-one that
+wrongly rejects/accepts the boundary day even though the container runs
+`TZ=Asia/Tokyo` (`toISOString()` always emits UTC, ignoring the env TZ).
+`todayIsoJst()` pins the date via `Intl.DateTimeFormat(..., { timeZone:
+'Asia/Tokyo' })` — same semantics as the FE `todayIsoTokyo()` so FE/BE
+agree on the boundary. (Serializing a date-only **column value** with
+`(d as Date).toISOString().slice(0,10)` is fine — that's a UTC-midnight
+DATE with no time component, not a "now" computation.)
 
 TypeORM entity declaration — explicit `type: 'timestamptz'` on
 `@CreateDateColumn` / `@UpdateDateColumn` / `@DeleteDateColumn` is
@@ -1697,7 +1775,7 @@ async exportPdf(@Query() query: ExportQueryDto, @Request() req, @Res() res: Resp
 ## File Upload — AWS S3
 
 Rules:
-- File storage: 1 folder per JA (`ja-{jaId}/`)
+- File storage: 1 folder per JA — `ja-{ja_id}-{ja_code}/files/{uuid}-{original_filename}`. `ja_id` leads (stable, unique key); `ja_code` is an immutable, sanitized (`[A-Za-z0-9_-]`) readability suffix. Falls back to `ja-{ja_id}/` when ja_code can't be resolved (deleted JA / unknown id).
 - Max file size: 10MB
 - Allowed types: PDF, Excel (xlsx/xls), CSV
 - Return S3 key, not full URL (generate signed URL on download)

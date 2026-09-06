@@ -9,8 +9,11 @@
  * バリデーション・メッセージ: screen-design.md（機能定義）
  * DOM構造・ボタン文言: index.html / API契約: ACSMS-SCR-007-api.md。
  *
- * NICHINO_ADMIN は api.md §4.2 で shiten.* 権限を持たず router guard が拒否する。
- * フォームは JA スコープの session（session.ja_id 非 null）を前提とする。
+ * NICHINO_ADMIN は顧客CR 2026-08-24 で shiten.* 権限を正式付与された
+ * （session.ja_id が null）。他の3ロールは JA スコープの session
+ * （session.ja_id 非 null）を前提とする。NICHINO_ADMIN は代行入力として
+ * フォーム上部の BaseJaDropdown で対象 JA を選ぶ（[staff-ja-id] —
+ * hanbaiten.service.ts / HanbaitenFormView.vue と同じパターン）。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -19,6 +22,7 @@ import { message } from 'ant-design-vue';
 import BaseCard from '@/components/common/BaseCard.vue';
 import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
+import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
@@ -47,6 +51,7 @@ import {
   getKanriShitenDropdown,
   type KanriShitenDropdownItem,
 } from '@/api/kanri-shiten/kanri-shiten';
+import type { JaDropdownItem } from '@/api/ja/ja';
 import { useAuthStore } from '@/stores/auth.store';
 
 const route = useRoute();
@@ -96,18 +101,40 @@ const isViewOnly = computed(
     loadedKanriShitenId.value !== (authStore.user?.kanri_shiten_id ?? null),
 );
 
+// [staff-ja-id] NICHINO_ADMIN は session.ja_id を持たない — 上部の
+// BaseJaDropdown は create で必須 / edit で disabled read-only。他ロールは常に
+// 非 null の session.ja_id を持つためこの分岐に入らない（顧客CR 2026-08-24）。
+const isAdminProxy = computed(() => authStore.user?.ja_id == null);
+
 const kanriShitenOptions = ref<KanriShitenDropdownItem[]>([]);
+
+/** 管理支店 dropdown（ACSMS-API-COMMON-004）を指定 JA にスコープして取得する。 */
+async function loadKanriShitenOptions(jaId: number): Promise<void> {
+  try {
+    const resp = await getKanriShitenDropdown(jaId);
+    kanriShitenOptions.value = resp.data;
+  } catch {
+    // axios interceptor が 403/500 を既にトースト済み。
+    kanriShitenOptions.value = [];
+  }
+}
 
 // フォーム状態 — kanri_shiten_id はユーザーが選ぶまで undefined にして antd の
 // <a-select> が "0" ではなく placeholder（"選択してください"）を表示するようにする。
 // 未設定は validateClient が捕捉。
-type FormState = Omit<CreateShitenRequest, 'kanri_shiten_id'> & {
+// `ja_id` は BaseJaDropdown の v-model（`number | null`）を直接受けるため
+// `CreateShitenRequest`（`number | undefined`）の型を上書きする。
+type FormState = Omit<CreateShitenRequest, 'kanri_shiten_id' | 'ja_id'> & {
   kanri_shiten_id: number | undefined;
+  ja_id: number | null;
 };
 
 /** フォーム初期値。登録モード復帰時（[route-reuse] リセット）にも使う。 */
 function defaultFormState(): FormState {
   return {
+    // [staff-ja-id] NICHINO_ADMIN 代行入力 のみ使用。JA スコープのロールは
+    // 常に null のまま — BE は無視し session.ja_id を使う。
+    ja_id: null,
     shiten_code: '',
     shiten_name: '',
     shiten_name_kana: '',
@@ -144,6 +171,9 @@ async function loadDetail(id: number): Promise<void> {
     // （[role5-view-only]）。
     loadedKanriShitenId.value = resp.data.kanri_shiten_id ?? null;
     Object.assign(formState, {
+      // [staff-ja-id] detail は ja_id を持つ — 投入して edit モードの disabled
+      // BaseJaDropdown が所有 JA を表示するようにする（NICHINO_ADMIN のみ表示）。
+      ja_id: resp.data.ja_id,
       shiten_code: resp.data.shiten_code,
       shiten_name: resp.data.shiten_name,
       shiten_name_kana: resp.data.shiten_name_kana ?? '',
@@ -157,12 +187,31 @@ async function loadDetail(id: number): Promise<void> {
       jastem_koza_no: resp.data.jastem_koza_no ?? '',
       biko: resp.data.biko ?? '',
     });
+    // NICHINO_ADMIN 代行入力 — 編集対象の JA で 管理支店 dropdown をスコープ
+    // （JA スコープ session は onMounted で既に session.ja_id を使い取得済み）。
+    if (isAdminProxy.value) {
+      await loadKanriShitenOptions(resp.data.ja_id);
+    }
     await editGuard.capture();
   } catch {
     // 404 / 403 — axios interceptor が既にトースト済み。この view は
     // 遷移させる（顧客要件 2026-08 — useNotFoundRedirect 共通化）。
     await redirectToDashboard();
   }
+}
+
+/**
+ * [staff-ja-id] NICHINO_ADMIN が新たに JA を選び直したときの副作用 — 管理支店
+ * dropdown を選ばれた JA へ再スコープし、前 JA の選択（違う JA の管理支店 id）を
+ * クリアする。BaseJaDropdown は @select でクリア時も `null` を渡す。
+ */
+function onJaSelect(item: JaDropdownItem | null): void {
+  formState.kanri_shiten_id = undefined;
+  if (item === null) {
+    kanriShitenOptions.value = [];
+    return;
+  }
+  void loadKanriShitenOptions(item.ja_id);
 }
 
 /**
@@ -176,25 +225,24 @@ async function applyRouteMode(): Promise<void> {
   resetFormState();
   if (shitenIdParam.value !== undefined) {
     await loadDetail(shitenIdParam.value);
+  } else if (isAdminProxy.value) {
+    // 登録モード — NICHINO_ADMIN はまず JA を選ぶ必要があるため、選ぶまで
+    // 管理支店 dropdown は空のまま（[staff-ja-id]）。
+    kanriShitenOptions.value = [];
   }
 }
 
 onMounted(() => {
   // 管理支店 dropdown（ACSMS-API-COMMON-004）— 呼び出し元の JA にスコープ
-  // （cascade 元）。NICHINO_ADMIN は ja_id を持たずどのみち到達不可（router guard が
-  // admin の持たない shiten.create / shiten.update で拒否）。JA レベル3ロールは
-  // 常に非 null の session.ja_id を持つ。ログイン中の JA は route 遷移で変わらない
-  // ため、ここは一度だけ取得すれば十分（applyRouteMode 側で再取得しない）。
+  // （cascade 元）。JA レベル3ロールは常に非 null の session.ja_id を持つ。
+  // NICHINO_ADMIN（顧客CR 2026-08-24 で shiten.create 付与・session.ja_id が
+  // null）は代行入力 — BaseJaDropdown で JA を選ぶ / detail をロードするまで
+  // 取得を待つ（onJaSelect / loadDetail が担当）。ログイン中の JA は route
+  // 遷移で変わらないため、JA スコープ session ではここで一度だけ取得すれば
+  // 十分（applyRouteMode 側で再取得しない）。
   const jaId = authStore.user?.ja_id;
   if (jaId !== null && jaId !== undefined) {
-    void getKanriShitenDropdown(jaId)
-      .then((resp) => {
-        kanriShitenOptions.value = resp.data;
-      })
-      .catch(() => {
-        // axios interceptor が 403/500 を既にトースト済み。
-        kanriShitenOptions.value = [];
-      });
+    void loadKanriShitenOptions(jaId);
   }
 
   void applyRouteMode();
@@ -283,6 +331,12 @@ function validateJastemFields(
 function validateClient(form: FormState): Record<string, string> {
   const errs: Record<string, string> = {};
 
+  // [staff-ja-required] NICHINO_ADMIN 代行入力 は submit 前に JA 選択が必須。
+  // JA スコープは session.ja_id が優先され picker を見ないためチェックをスキップ。
+  if (isAdminProxy.value && !isEdit.value && !form.ja_id) {
+    errs.ja_id = REQUIRED_MSG;
+  }
+
   // 必須チェック。`?.trim()` は必須 — antd `<a-select allow-clear>` は
   // × クリックで v-model を undefined にする（vue.md）。
   if (!isEdit.value && !form.shiten_code?.trim()) {
@@ -328,6 +382,7 @@ const allFieldErrors = computed<Record<string, string>>(() => ({
 /* ─── Submit パイプライン ─────────────────────────────────────────── */
 
 const FIELD_ORDER: ReadonlyArray<keyof FormState> = [
+  'ja_id',
   'kanri_shiten_id',
   'kinyu_shiten_flg',
   'shiten_code',
@@ -357,13 +412,23 @@ async function submitWith(form: FormState): Promise<void> {
     let highlightId: number | undefined;
     if (shitenIdParam.value === undefined) {
       // validateClient が登録モードで kanri_shiten_id 設定済みを保証。
-      const created = await createShiten(form as CreateShitenRequest);
+      // [staff-ja-id] NICHINO_ADMIN のみ ja_id を出す — JA スコープは BE が
+      // session.ja_id を bind しどのみち無視される。payload を綺麗に保つ。
+      const { ja_id, ...rest } = form;
+      const body: CreateShitenRequest = {
+        ...(rest as Omit<CreateShitenRequest, 'ja_id'>),
+        ...(isAdminProxy.value && ja_id != null ? { ja_id } : {}),
+      };
+      const created = await createShiten(body);
       notify.created();
       highlightId = created.data.shiten_id;
     } else {
-      // PUT body は shiten_code を落とす（immutable、api.md §3 注記）。
-      const { shiten_code: _drop, ...updateBody } = form;
-      void _drop;
+      // PUT body は shiten_code（immutable、api.md §3 注記）と ja_id
+      // （NICHINO_ADMIN 編集時も BE は既存行の jaId を使い body 側は無視 —
+      // セッションではなく対象行の JA に FK を bind する）を落とす。
+      const { shiten_code: _dropCode, ja_id: _dropJaId, ...updateBody } = form;
+      void _dropCode;
+      void _dropJaId;
       await updateShiten(
         shitenIdParam.value,
         updateBody as UpdateShitenRequest,
@@ -423,6 +488,29 @@ defineExpose({ submitWith, form: formState });
         @keydown="preventEnterImplicitSubmit"
         @finish="onFormSubmit"
       >
+        <!-- ─── [staff-ja-id] JA picker — NICHINO_ADMIN 代行入力 only ── -->
+        <a-form-item
+          v-if="isAdminProxy"
+          name="ja_id"
+          :validate-status="allFieldErrors.ja_id ? 'error' : ''"
+          :help="allFieldErrors.ja_id"
+          data-test="shiten-admin-ja-form-item"
+        >
+          <template #label>
+            <span>JA名</span>
+            <span v-if="!isEdit" class="text-error ml-1">*</span>
+          </template>
+          <!-- edit モードで disabled（FK は immutable — 既存 shiten と全子参照を
+               孤立させてしまう）。必須 * も edit で消し、アスタリスクは実際に
+               入力が必要な項目だけを示す。 -->
+          <BaseJaDropdown
+            v-model:value="formState.ja_id"
+            :disabled="isEdit"
+            placeholder="JAを選択してください"
+            @select="onJaSelect"
+          />
+        </a-form-item>
+
         <!-- 行1: 管理支店（全幅） + 金融機関支店フラグ -->
         <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
@@ -445,7 +533,11 @@ defineExpose({ submitWith, form: formState });
                 }))
               "
               allow-clear
-              :disabled="isRole5LockedFields || isViewOnly"
+              :disabled="
+                isRole5LockedFields ||
+                isViewOnly ||
+                (isAdminProxy && !isEdit && formState.ja_id == null)
+              "
             />
           </a-form-item>
 

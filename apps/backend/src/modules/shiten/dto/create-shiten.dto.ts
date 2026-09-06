@@ -8,6 +8,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  Min,
   ValidateIf,
 } from 'class-validator';
 
@@ -26,6 +27,20 @@ const isJastemRequired = (o: { kinyu_shiten_flg?: boolean }): boolean =>
  * (screen-design §3.1)、kinyu_shiten_flg 既定 false (database-design §m_shiten)。
  */
 export class CreateShitenDto {
+  /**
+   * [staff-ja-id] NICHINO_ADMIN 代行入力ではフォームの BaseJaDropdown で ja_id を
+   * 明示指定する（このロールは session.ja_id が null・顧客CR 2026-08-24）。他ロールが
+   * 送っても BE service は無視し session.ja_id を使うため、クロステナント注入は不可。
+   */
+  @ApiPropertyOptional({
+    description: 'JA ID（NICHINO_ADMIN 代行入力 専用）。',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'JA IDは整数で指定してください。' })
+  @Min(1, { message: 'JA IDは1以上で指定してください。' })
+  ja_id?: number;
+
   @ApiProperty({ description: '支店コード（半角数字3桁固定）', minLength: 3, maxLength: 3 })
   @IsString({ message: '支店コードを入力してください。' })
   @IsNotEmpty({ message: '支店コードを入力してください。' })

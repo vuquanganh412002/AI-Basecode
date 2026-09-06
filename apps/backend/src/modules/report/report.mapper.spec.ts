@@ -147,9 +147,19 @@ describe('paginateNichinoSubscribers / buildZougenNichinoDocDefinition — PDF�
   const nr = (o: Record<string, unknown> = {}): ZougenNichinoRawRow =>
     buildZougenNichinoRawRow(o) as unknown as ZougenNichinoRawRow;
 
-  // 20購読者（全て増・同一管理支店/販売店）→ 15行/ページ → 2ページ。
+  // 20購読者（全て増・同一管理支店・販売店は別々）→ 15行/ページ → 2ページ。
+  // 販売店を別々にする理由 (#59108): 同一 hanbaiten_id の行は
+  // mergeRowsByHanbaiten() で1行に集約されるため、同一販売店のままだと
+  // 20購読者が1行に潰れてページング検証が成立しない。
   const rows: ZougenNichinoRawRow[] = Array.from({ length: 20 }, (_, i) =>
-    nr({ dokusya_id: 9300 + i, dokusya_busu: 3, zenkai_dokusya_busu: 1 }),
+    nr({
+      dokusya_id: 9300 + i,
+      dokusya_busu: 3,
+      zenkai_dokusya_busu: 1,
+      hanbaiten_id: 900 + i,
+      hanbaiten_code: String(900 + i).padStart(8, '0'),
+      zenkai_hanbaiten_id: 900 + i,
+    }),
   );
 
   it('購読者を perPage 単位で分割する（管理支店コード, 販売店コード, dokusya_id 昇順）', () => {
@@ -178,10 +188,24 @@ describe('paginateNichinoSubscribers / buildZougenNichinoDocDefinition — PDF�
     // グループ単位ページングでは管理支店ごとに別ページ（計2ページ・各1管理支店）。
     const multi: ZougenNichinoRawRow[] = [
       ...Array.from({ length: 3 }, (_, i) =>
-        nr({ dokusya_id: 8100 + i, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001' }),
+        nr({
+          dokusya_id: 8100 + i,
+          kanri_shiten_id: 20,
+          kanri_shiten_code: '1AA3300001',
+          hanbaiten_id: 810 + i,
+          hanbaiten_code: String(810 + i).padStart(8, '0'),
+          zenkai_hanbaiten_id: 810 + i,
+        }),
       ),
       ...Array.from({ length: 2 }, (_, i) =>
-        nr({ dokusya_id: 8200 + i, kanri_shiten_id: 21, kanri_shiten_code: '1AA3300002' }),
+        nr({
+          dokusya_id: 8200 + i,
+          kanri_shiten_id: 21,
+          kanri_shiten_code: '1AA3300002',
+          hanbaiten_id: 820 + i,
+          hanbaiten_code: String(820 + i).padStart(8, '0'),
+          zenkai_hanbaiten_id: 820 + i,
+        }),
       ),
     ];
     const pages = paginateNichinoSubscribers(multi, 15);

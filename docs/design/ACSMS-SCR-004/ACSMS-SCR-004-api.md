@@ -18,6 +18,7 @@ updated_by: Nguyen Duyen Manh
 | No  | 発行日       | 版数 | 担当者            | 変更内容 | 確認者         | 承認者         |
 | --- | ------------ | ---- | ----------------- | -------- | -------------- | -------------- |
 | 1   | {issue_date} | 1.0  | Nguyen Duyen Manh | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/08/20   | 1.1  | Tran Duc Tuyen | 不具合修正2026-08：§4.4 関連データチェックに `t_oshirase`（お知らせ、ja_id 参照）と `t_dokusya_rireki`（購読者履歴、ja_id 参照）を追加。両方とも実DBの外部キー制約は存在するが、削除ガードの対象から漏れていた。`t_file_upload`/`t_file_download`/`t_log` は操作ログ・監査証跡の蓄積テーブルであり業務上のリレーションでないため意図的に対象外のまま。 | | |
 
 ## システム概要
 
@@ -448,6 +449,17 @@ WHERE ja_id = :id AND deleted_at IS NULL;
 -- アカウントの存在チェック
 SELECT COUNT(*) FROM m_account
 WHERE ja_id = :id AND deleted_at IS NULL;
+
+-- お知らせの存在チェック（不具合修正2026-08 — 公開中の可能性がある
+-- 生きた業務データのため対象に追加。ファイルアップロード/ダウンロード/
+-- 操作ログ等の蓄積テーブルは業務上のリレーションでないため対象外）
+SELECT COUNT(*) FROM t_oshirase
+WHERE ja_id = :id AND deleted_at IS NULL;
+
+-- 購読者履歴の存在チェック（不具合修正2026-08 — t_dokusya_rireki は
+-- append-only の履歴テーブルで deleted_at 列を持たないため付けない）
+SELECT COUNT(*) FROM t_dokusya_rireki
+WHERE ja_id = :id;
 ```
 
 - いずれかに関連レコードが存在する場合：

@@ -1,12 +1,17 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { Request } from 'express';
 import * as ExcelJS from 'exceljs';
 
 import { ItakuKubun, LogType, ResultStatus } from '@/common/enums';
+import { TANKA_TYPE_HAITATSURYO } from '@/common/constants/tanka-type.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
+import { TODOFUKEN_CODE_NOT_FOUND_MESSAGE } from '@/common/constants/todofuken.constant';
 import { Hanbaiten } from '@/database/entities/hanbaiten.entity';
 import { Tanka } from '@/database/entities/tanka.entity';
+import { Todofuken } from '@/database/entities/todofuken.entity';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import {
@@ -20,7 +25,7 @@ import {
   ImportHanbaitenDto,
   ImportHanbaitenRowDto,
 } from './dto/import-hanbaiten.dto';
-import { ImportValidationException } from './exceptions/import-validation.exception';
+import { ImportValidationException } from '@/common/exceptions/import-validation.exception';
 import { RowLimitExceededException } from './exceptions/row-limit-exceeded.exception';
 import {
   IMPORT_COLUMN_TO_FIELD,
@@ -32,7 +37,6 @@ import {
 } from './dto/import-template.constants';
 
 /** ACSMS-SCR-019 — 販売店Excelデータ取込画面。監査コンテキストのラベル。 */
-const SCR019_SCREEN_NAME = '販売店Excelデータ取込画面 (ACSMS-SCR-019)';
 
 /**
  * ACSMS-SCR-019 監査ログ用テーブル名（t_log.target_table）。core 側と同値だが本
@@ -98,11 +102,14 @@ export class HanbaitenImportService {
     @Optional()
     @InjectRepository(Tanka)
     private readonly tankaRepo?: Repository<Tanka>,
+    @Optional()
+    @InjectRepository(Todofuken)
+    private readonly todofukenRepo?: Repository<Todofuken>,
   ) {}
 
   // ─── ACSMS-API-019-001 — GET /api/v1/hanbaiten/import/template ────────
   /**
-   * 正準 23 列ヘッダ一覧（integration spec もテンプレート検証に参照）。
+   * 正準 24 列ヘッダ一覧（integration spec もテンプレート検証に参照）。
    * controller/integration テストが同一ソースを検証できるよう public。
    */
   getImportTemplateColumns(): string[] {
@@ -110,7 +117,7 @@ export class HanbaitenImportService {
   }
 
   /**
-   * Excel テンプレート生成 — 1 worksheet・正準順の 23 日本語列名を持つヘッダ 1 行。
+   * Excel テンプレート生成 — 1 worksheet・正準順の 24 日本語列名を持つヘッダ 1 行。
    * 読取専用（監査ログ無し・api.md §4 — テンプレDLは状態変更でなく discovery）。
    *
    * `session` は body 未使用だが、呼出許可者を spec 契約で明示するため signature に保持
@@ -159,7 +166,7 @@ export class HanbaitenImportService {
    *   8. [tanka-fk-resolution]    — haitatsuryo_tanka_code → tanka_id、ja_id 絞込(Layer 4)。
    *
    * 全 pre-check 通過後、1 つの `dataSource.transaction(...)` が全 INSERT/UPDATE +
-   * 監査 1 行（`IMPORT_NEW` / `IMPORT_UPDATE_PARTIAL`）を包む。途中失敗は原子的に
+   * 監査 1 行（`IMPORT_NEW` / `IMPORT_UPDATE`）を包む。途中失敗は原子的に
    * ロールバック。エラーログ行はロールバック後に standalone 接続で書きトレースを残す。
    */
   async importExcel(
@@ -238,7 +245,33 @@ export class HanbaitenImportService {
       existingRows.map((r) => [r.hanbaiten_code, r]),
     );
 
-    this.collectExistenceErrors(body.rows, body.import_mode, existingMap, errors);
+    // [dup-vs-deleted・不具合修正2026-08] DB UNIQUE INDEX (ja_id, hanbaiten_code)
+    // は論理削除を除外しない（作成画面 hanbaiten.service.ts の
+    // `repo.count({..., withDeleted: true})` と同一仕様）。上の existingRows は
+    // UPDATE の存在確認・conditional-required マージ用に deleted_at IS NULL の
+    // ままにする必要があるため、NEW モードの重複検出だけは別途「削除済み含む」
+    // 集合で行う。これを怠ると、論理削除済みの販売店と同じコードで新規登録した
+    // 際に pre-check を素通りし、INSERT が生の一意制約違反(23505)で落ちて
+    // 「システムエラーが発生しました。」の 500 になっていた。
+    const allCodeRows: Array<{ hanbaiten_code: string }> =
+      codes.length === 0
+        ? []
+        : await this.dataSource.query(
+            `SELECT hanbaiten_code FROM m_hanbaiten
+              WHERE ja_id = $1 AND hanbaiten_code = ANY($2::text[])`,
+            [targetJaId, codes],
+          );
+    const allCodesIncludingDeleted = new Set(
+      allCodeRows.map((r) => r.hanbaiten_code),
+    );
+
+    this.collectExistenceErrors(
+      body.rows,
+      body.import_mode,
+      existingMap,
+      allCodesIncludingDeleted,
+      errors,
+    );
     this.collectImportConditionalRequiredErrors(
       body.rows,
       body.import_mode,
@@ -262,6 +295,16 @@ export class HanbaitenImportService {
       errors,
     );
 
+    // [todofuken-validation] — Excel で都道府県コードが入力された行のみ、
+    // m_todofuken に実在するか検証（顧客CR 2026-08-24 — ACSMS-SCR-017 作成/更新
+    // 画面と同じく都道府県が自由選択になったため、取込にも任意列として追加）。
+    // 未入力行は [todofuken-default] で JA 既定に fallback するため対象外。
+    await this.collectImportTodofukenErrors(
+      body.rows,
+      body.selected_columns,
+      errors,
+    );
+
     // 短絡 — pre-check 失敗があれば dataSource.transaction を開く前に throw
     // （api.md §4.3 — pre-check フェーズは §4.4 transaction フェーズに厳密に先行）。
     if (errors.length > 0) {
@@ -269,8 +312,8 @@ export class HanbaitenImportService {
     }
 
     // [todofuken-default] — m_hanbaiten.todofuken_code は NOT NULL・m_todofuken への FK。
-    // Excel テンプレートは 都道府県 を持たない(api.md §テンプレートファイル仕様)ので
-    // 呼出者の JA 都道府県を既定に。取込毎に 1 回ルックアップ。
+    // 都道府県列が非選択、またはセルが空の行は呼出者の JA 都道府県を既定に。
+    // 取込毎に 1 回ルックアップ。
     const jaTodofuken = await this.dataSource.query<Array<{ todofuken_code: string }>>(
       `SELECT todofuken_code FROM m_ja WHERE ja_id = $1 AND deleted_at IS NULL`,
       [targetJaId],
@@ -284,10 +327,8 @@ export class HanbaitenImportService {
     let updatedCount = 0;
     const createdIds: number[] = [];
 
-    // UPDATE は選択列のみ更新（partial 相当）。監査 operation は既存の
-    // IMPORT_UPDATE_PARTIAL を再利用（過去ログ互換のため enum を変えない）。
     const operation =
-      body.import_mode === 'NEW' ? 'IMPORT_NEW' : 'IMPORT_UPDATE_PARTIAL';
+      body.import_mode === 'NEW' ? 'IMPORT_NEW' : 'IMPORT_UPDATE';
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -313,6 +354,7 @@ export class HanbaitenImportService {
               existingMap,
               selectedColumns: body.selected_columns,
               tankaId,
+              defaultTodofukenCode,
               session,
             });
             updatedCount += 1;
@@ -324,7 +366,7 @@ export class HanbaitenImportService {
         const ctx = buildAuditCtx(
           session,
           req,
-          SCR019_SCREEN_NAME,
+          ScreenName.ACSMS_SCR_019,
           TABLE_NAME,
           null,
         );
@@ -337,7 +379,7 @@ export class HanbaitenImportService {
           imported_at: importedAt,
         };
         // 取込はバッチ操作なので「1取込につき監査ログ1行」。非標準ラベル
-        // (IMPORT_NEW / IMPORT_UPDATE_PARTIAL) を logOperation で直接記録。以前は
+        // (IMPORT_NEW / IMPORT_UPDATE) を logOperation で直接記録。以前は
         // spec を通すため logCreate/logUpdate も併発し t_log が1取込2行になっていた —
         // その重複を排除し logOperation 1本に統一。
         if (body.import_mode === 'NEW') {
@@ -384,7 +426,7 @@ export class HanbaitenImportService {
     } catch (err) {
       // [audit-error-log] — ロールバック外。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCR019_SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_019, TABLE_NAME, null),
         operation,
         err as Error,
       );
@@ -400,29 +442,39 @@ export class HanbaitenImportService {
         skipped_count: 0,
         imported_at: importedAt,
       },
-      message: '取り込みました。',
+      message: SuccessMessage.IMPORTED,
     };
   }
 
   // ACSMS-SCR-019 import — 存在チェック vs import_mode：
-  //   NEW → 既存コードは重複エラー、UPDATE_* → 不在コードは not-found エラー。
-  // importExcel から抽出（Sonar S3776 の複雑度閾値を下げる）。
+  //   NEW → 既存(削除済み含む)コードは重複エラー、UPDATE_* → 不在コードは
+  //   not-found エラー。importExcel から抽出（Sonar S3776 の複雑度閾値を下げる）。
   private collectExistenceErrors(
     rows: ImportHanbaitenRowDto[],
     importMode: ImportHanbaitenDto['import_mode'],
     existingMap: Map<string, number>,
+    allCodesIncludingDeleted: Set<string>,
     errors: Array<{ row: number; field: string; message: string }>,
   ): void {
     const isNew = importMode === 'NEW';
-    const message = isNew
-      ? '同一の販売店コードが既に登録されています。'
-      : '指定された販売店コードが存在しません。';
     rows.forEach((row, idx) => {
       const code = row.hanbaiten_code;
       if (!code) return;
-      const has = existingMap.has(code);
-      if (isNew ? has : !has) {
-        errors.push({ row: idx + 2, field: 'hanbaiten_code', message });
+      if (isNew) {
+        // 削除済み行を含めて衝突を検出（DB UNIQUE INDEX と同一仕様・不具合修正2026-08）。
+        if (allCodesIncludingDeleted.has(code)) {
+          errors.push({
+            row: idx + 2,
+            field: 'hanbaiten_code',
+            message: `販売店コード「${code}」はすでに登録されています。`,
+          });
+        }
+      } else if (!existingMap.has(code)) {
+        errors.push({
+          row: idx + 2,
+          field: 'hanbaiten_code',
+          message: '指定された販売店コードが存在しません。',
+        });
       }
     });
   }
@@ -443,10 +495,16 @@ export class HanbaitenImportService {
     );
     const tankaIdMap = new Map<string, number>();
     if (tankaCodes.length > 0 && this.tankaRepo) {
+      // [haitatsuryo-type-guard・不具合修正2026-08] tanka_type=2(配達手数料)の
+      // みを対象にする。フィルタが無いと購読料(tanka_type=1)の単価コードでも
+      // 解決に成功し、配達手数料単価として保存できてしまっていた（dokusya取込
+      // の TANKA_TYPE_KODOKU 絞込と同じ考え方 — 種別違いは「見つからない」扱い
+      // で不整合を防ぐ）。
       const found = await this.tankaRepo.find({
         where: tankaCodes.map((code) => ({
           tankaCode: code,
           jaId: targetJaId,
+          tankaType: TANKA_TYPE_HAITATSURYO,
           deletedAt: IsNull(),
         })),
       });
@@ -465,6 +523,39 @@ export class HanbaitenImportService {
       }
     });
     return tankaIdMap;
+  }
+
+  // ACSMS-SCR-019 import — Excel で都道府県コードが入力された行のみ m_todofuken
+  // 存在検証（顧客CR 2026-08-24）。空セル行は [todofuken-default] で JA 既定に
+  // fallback するため対象外 — ACSMS-SCR-017 作成/更新画面の code-master-check
+  // （hanbaiten.service.ts）と同じ規約・同じメッセージ。
+  private async collectImportTodofukenErrors(
+    rows: ImportHanbaitenRowDto[],
+    selectedColumns: string[],
+    errors: Array<{ row: number; field: string; message: string }>,
+  ): Promise<void> {
+    if (!selectedColumns.includes('todofuken_code')) return;
+    const codes = Array.from(
+      new Set(
+        rows
+          .map((r) => r.todofuken_code)
+          .filter((c): c is string => typeof c === 'string' && c.length > 0),
+      ),
+    );
+    if (codes.length === 0 || !this.todofukenRepo) return;
+    const found = await this.todofukenRepo.find({
+      where: { todofukenCode: In(codes) },
+    });
+    const validCodes = new Set(found.map((t) => t.todofukenCode));
+    rows.forEach((row, idx) => {
+      if (row.todofuken_code && !validCodes.has(row.todofuken_code)) {
+        errors.push({
+          row: idx + 2,
+          field: 'todofuken_code',
+          message: TODOFUKEN_CODE_NOT_FOUND_MESSAGE,
+        });
+      }
+    });
   }
 
   private collectBatchDuplicateCodeErrors(
@@ -637,16 +728,21 @@ export class HanbaitenImportService {
       ctx;
     // [selected-columns-honoured] api.md §4.4.1 — selected_columns に無い列は
     // Excel セルでなく既定値（空文字 / NULL / false）で書く。FE 取込列トグルの反映：
-    // 新規登録で任意列を外す = 「その列は既定を挿入」。hanbaiten_code(key) +
-    // todofuken_code(JA から自動導出・テンプレ列でない)は常に書く。
+    // 新規登録で任意列を外す = 「その列は既定を挿入」。hanbaiten_code(key)は常に書く。
     const sel = new Set(selectedColumns);
     // `pick(col, value, dflt)` — 列が選択されていれば Excel 値、なければ空既定に fallback。
     const pick = <T>(col: string, value: T, dflt: T): T =>
       sel.has(col) ? value : dflt;
+    // [todofuken-default] — todofuken_code は列が選択されかつセルに値がある
+    // 場合のみ Excel 値を採用（他の pick() と異なり空既定が `''` ではなく JA の
+    // 都道府県 — NOT NULL・m_todofuken FK のため空文字は不可）。
+    const todofukenCode = sel.has('todofuken_code') && row.todofuken_code
+      ? row.todofuken_code
+      : defaultTodofukenCode;
     const entity = manager.create(Hanbaiten, {
       jaId: targetJaId,
       hanbaitenCode: row.hanbaiten_code,
-      todofukenCode: defaultTodofukenCode,
+      todofukenCode,
       hanbaitenName: pick('hanbaiten_name', row.hanbaiten_name ?? '', ''),
       hanbaitenNameKana: pick(
         'hanbaiten_name_kana',
@@ -694,10 +790,11 @@ export class HanbaitenImportService {
       existingMap: Map<string, number>;
       selectedColumns: string[];
       tankaId: number | null;
+      defaultTodofukenCode: string;
       session: SessionPayload;
     },
   ): Promise<void> {
-    const { existingMap, selectedColumns, tankaId, session } = ctx;
+    const { existingMap, selectedColumns, tankaId, defaultTodofukenCode, session } = ctx;
     const existingId = existingMap.get(row.hanbaiten_code)!;
     const payload: Partial<Hanbaiten> = {
       updatedBy: String(session.account_id),
@@ -706,6 +803,13 @@ export class HanbaitenImportService {
       if (col === 'hanbaiten_code') continue;
       if (col === 'haitatsuryo_tanka_code') {
         payload.haitatsuryoTankaId = tankaId;
+        continue;
+      }
+      if (col === 'todofuken_code') {
+        // [todofuken-default] — 選択されたがセルが空の場合、他列のような
+        // 静的既定（'' 等）ではなく JA の都道府県に fallback（NOT NULL・
+        // m_todofuken FK のため空文字は不可）。
+        payload.todofukenCode = row.todofuken_code || defaultTodofukenCode;
         continue;
       }
       const entityField = IMPORT_COLUMN_TO_FIELD[col];

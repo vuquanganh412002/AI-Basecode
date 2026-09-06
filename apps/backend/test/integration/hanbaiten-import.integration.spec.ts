@@ -4,7 +4,7 @@
 // stack — exercise guards, ValidationPipe, m_code + m_tanka FK lookups,
 // duplicate-code detection, DataScope (each JA's caller sees only its
 // own rows after import), 2-mode behaviour (NEW / UPDATE), and audit log
-// atomicity (one t_log row per row + IMPORT_NEW / IMPORT_UPDATE_PARTIAL tag
+// atomicity (one t_log row per row + IMPORT_NEW / IMPORT_UPDATE tag
 // written inside the same transaction as the m_hanbaiten INSERT/UPDATE).
 //
 // Endpoints covered (both ship with /gen-code-backend ACSMS-SCR-019):
@@ -392,6 +392,41 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       expect(await countHanbaiten(1)).toBe(0);
     });
 
+    it('should return 400 IMPORT_VALIDATION_ERROR when haitatsuryo_tanka_code refers to a 購読料(tanka_type=1) tanka instead of 配達手数料(tanka_type=2) (不具合修正2026-08)', async () => {
+      // 配達手数料単価は tanka_type=2 のみが正当。購読料(tanka_type=1)の単価
+      // コードを指定しても、修正前は種別を見ずに解決してしまい保存できていた。
+      await ctx.dataSource.query(
+        `INSERT INTO m_tanka
+           (tanka_id, ja_id, tanka_code, tanka_type, tanka_name,
+            kingaku_zeikomi, kingaku_zeinuki, tax_rate,
+            tekiyo_start_date, tekiyo_end_date, biko, active_flg,
+            created_at, created_by, updated_at, updated_by)
+         VALUES
+           (20, 1, 'TKODOKU', 1, '購読料',
+            3850, 3500, 10.00,
+            '2026-01-01', NULL, '', TRUE,
+            NOW(), 'SYSTEM', NOW(), 'SYSTEM')`,
+      );
+      const cookie = await jaHontenCookie(1);
+      const body = buildImportRequestNEW({
+        rows: [
+          buildImportRow({
+            hanbaiten_code: 'H120',
+            haitatsuryo_tanka_code: 'TKODOKU',
+          }),
+        ],
+      });
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(body)
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const errs = res.body.errors ?? [];
+      expect(errs.some((e: any) => e.field === 'haitatsuryo_tanka_code')).toBe(true);
+      expect(await countHanbaiten(1)).toBe(0);
+    });
+
     it('should return 400 IMPORT_VALIDATION_ERROR when itaku_kubun is not a valid m_code value', async () => {
       const cookie = await jaHontenCookie();
       const body = buildImportRequestNEW({
@@ -501,6 +536,102 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       expect(h001.tel).toBe(''); // unselected → default empty string
     });
 
+    // 顧客CR 2026-08-24 — todofuken_code は取込にも任意列として追加。
+    // 未入力（列非選択 or セル空）時は呼出者の JA の都道府県に fallback。
+    it('should default todofuken_code to the caller JA prefecture when the column is not selected', async () => {
+      const cookie = await jaHontenCookie(1); // JA001 — todofuken_code = '13'
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportRequestNEW({
+            selected_columns: [
+              'hanbaiten_code',
+              'hanbaiten_name',
+              'itaku_kubun',
+              'furikomi_tesuryo_futan_kubun',
+            ],
+            rows: [
+              buildImportRow({
+                hanbaiten_code: 'H001',
+                hanbaiten_name: '販売店A',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+      expect(res.body.data.created_count).toBe(1);
+
+      const h001 = await findHanbaiten(1, 'H001');
+      expect(h001.todofuken_code).toBe('13');
+    });
+
+    it('should persist the Excel todofuken_code when the column is selected and the cell has a value (free choice, not forced to JA prefecture)', async () => {
+      const cookie = await jaHontenCookie(1); // JA001 — todofuken_code = '13'
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportRequestNEW({
+            selected_columns: [
+              'hanbaiten_code',
+              'hanbaiten_name',
+              'itaku_kubun',
+              'furikomi_tesuryo_futan_kubun',
+              'todofuken_code',
+            ],
+            rows: [
+              buildImportRow({
+                hanbaiten_code: 'H001',
+                hanbaiten_name: '販売店A',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
+                todofuken_code: '27', // JA002's prefecture, deliberately different
+              }),
+            ],
+          }),
+        )
+        .expect(200);
+      expect(res.body.data.created_count).toBe(1);
+
+      const h001 = await findHanbaiten(1, 'H001');
+      expect(h001.todofuken_code).toBe('27');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR when the Excel todofuken_code does not exist in m_todofuken', async () => {
+      const cookie = await jaHontenCookie(1);
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportRequestNEW({
+            selected_columns: [
+              'hanbaiten_code',
+              'hanbaiten_name',
+              'itaku_kubun',
+              'furikomi_tesuryo_futan_kubun',
+              'todofuken_code',
+            ],
+            rows: [
+              buildImportRow({
+                hanbaiten_code: 'H001',
+                hanbaiten_name: '販売店A',
+                itaku_kubun: 2,
+                furikomi_tesuryo_futan_kubun: 1,
+                todofuken_code: '99', // does not exist in m_todofuken
+              }),
+            ],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const errs = res.body.errors ?? [];
+      expect(errs.some((e: any) => e.field === 'todofuken_code')).toBe(true);
+      expect(await countHanbaiten(1)).toBe(0);
+    });
+
     it('should return 400 IMPORT_VALIDATION_ERROR with DUPLICATE_CODE row error when NEW mode hits an existing hanbaiten_code', async () => {
       const cookie = await jaHontenCookie(1);
       // Seed an existing row first.
@@ -520,10 +651,45 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const errs = res.body.errors ?? [];
       expect(errs.some((e: any) => e.field === 'hanbaiten_code')).toBe(true);
     });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR (not a 500) with the DuplicateCodeException-style message when NEW mode reuses a code from a soft-deleted hanbaiten (不具合修正2026-08)', async () => {
+      // 再現: hanbaiten_code は (ja_id, hanbaiten_code) の DB UNIQUE INDEX が
+      // 論理削除を除外しない（作成画面 hanbaiten.service.ts と同一仕様）ため、
+      // 削除済み行と同じコードで NEW 取込むと従来は pre-check（deleted_at IS
+      // NULL のみ参照）を素通りし、INSERT が生の一意制約違反(23505)で落ちて
+      // 「システムエラーが発生しました。」の 500 になっていた。
+      const cookie = await jaHontenCookie(1);
+      await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(buildImportRequestNEW({ rows: [buildImportRow({ hanbaiten_code: 'HDEL01' })] }))
+        .expect(200);
+      const [{ hanbaiten_id: id }] = await ctx.dataSource.query(
+        `SELECT hanbaiten_id FROM m_hanbaiten WHERE ja_id = 1 AND hanbaiten_code = 'HDEL01'`,
+      );
+      await ctx.dataSource.query(
+        `UPDATE m_hanbaiten SET deleted_at = NOW() WHERE hanbaiten_id = $1`,
+        [id],
+      );
+
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(buildImportRequestNEW({ rows: [buildImportRow({ hanbaiten_code: 'HDEL01' })] }))
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const errs = res.body.errors ?? [];
+      expect(errs).toContainEqual(
+        expect.objectContaining({
+          field: 'hanbaiten_code',
+          message: '販売店コード「HDEL01」はすでに登録されています。',
+        }),
+      );
+    });
   });
 
   describe('POST /api/v1/hanbaiten/import — UPDATE mode — all columns selected', () => {
-    it('should overwrite ALL fields of an existing row and emit IMPORT_UPDATE_PARTIAL audit log', async () => {
+    it('should overwrite ALL fields of an existing row and emit IMPORT_UPDATE audit log', async () => {
       const cookie = await jaHontenCookie(1);
       // Pre-seed via NEW import so we have an existing row to update.
       await http()
@@ -548,19 +714,66 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
       const after = await findHanbaiten(1, 'H001');
       expect(after.hanbaiten_name).toBe('販売店A改定');
 
-      // 「1取込=監査ログ1行」。IMPORT_UPDATE_PARTIAL がちょうど1行で、重複の
+      // 「1取込=監査ログ1行」。IMPORT_UPDATE がちょうど1行で、重複の
       // 素の UPDATE 行が無いことを検証（NEW/UPDATE 両モードの重複回帰防止）。
       const logs = await ctx.dataSource.query(
         `SELECT operation FROM t_log WHERE target_table = 'm_hanbaiten'`,
       );
       const importUpdateAll = logs.filter(
-        (l: { operation: string }) => l.operation === 'IMPORT_UPDATE_PARTIAL',
+        (l: { operation: string }) => l.operation === 'IMPORT_UPDATE',
       );
       const plainUpdate = logs.filter(
         (l: { operation: string }) => l.operation === 'UPDATE',
       );
       expect(importUpdateAll).toHaveLength(1);
       expect(plainUpdate).toHaveLength(0);
+    });
+
+    // 顧客CR 2026-08-24 — todofuken_code は UPDATE でも編集可能な任意列。
+    it('should update todofuken_code to a different valid prefecture when selected with a value', async () => {
+      const cookie = await jaHontenCookie(1);
+      await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(buildImportRequestNEW({ rows: [buildImportRow({ hanbaiten_code: 'H001' })] }))
+        .expect(200);
+      expect((await findHanbaiten(1, 'H001')).todofuken_code).toBe('13');
+
+      await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportRequestUpdateAll({
+            rows: [buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '27' })],
+          }),
+        )
+        .expect(200);
+
+      expect((await findHanbaiten(1, 'H001')).todofuken_code).toBe('27');
+    });
+
+    it('should return 400 IMPORT_VALIDATION_ERROR when UPDATE targets a todofuken_code that does not exist in m_todofuken', async () => {
+      const cookie = await jaHontenCookie(1);
+      await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(buildImportRequestNEW({ rows: [buildImportRow({ hanbaiten_code: 'H001' })] }))
+        .expect(200);
+
+      const res = await http()
+        .post(apiUrl('hanbaiten/import'))
+        .set('Cookie', cookie)
+        .send(
+          buildImportRequestUpdateAll({
+            rows: [buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '99' })],
+          }),
+        )
+        .expect(400);
+      expect(res.body.error_code).toBe('IMPORT_VALIDATION_ERROR');
+      const errs = res.body.errors ?? [];
+      expect(errs.some((e: any) => e.field === 'todofuken_code')).toBe(true);
+      // Unchanged — validation failed before the transaction phase.
+      expect((await findHanbaiten(1, 'H001')).todofuken_code).toBe('13');
     });
   });
 
@@ -758,9 +971,10 @@ describe('ACSMS-SCR-019 integration — hanbaiten Excel import endpoints', () =>
   });
 
   // Sanity — column list contract stays in sync with the fixture so the
-  // template + DTO + import-mode handlers all agree on the 23-column set.
-  it('should reference exactly 23 logical columns in the shared fixture', () => {
-    expect(HANBAITEN_IMPORT_COLUMNS).toHaveLength(23);
+  // template + DTO + import-mode handlers all agree on the 24-column set
+  // (顧客CR 2026-08-24 — todofuken_code added as an optional column).
+  it('should reference exactly 24 logical columns in the shared fixture', () => {
+    expect(HANBAITEN_IMPORT_COLUMNS).toHaveLength(24);
     expect(HANBAITEN_IMPORT_COLUMNS[0]).toBe('hanbaiten_code');
   });
 });

@@ -88,8 +88,8 @@ describe('dokusya-import — column model', () => {
     }
   });
 
-  it('caps import at 30000 rows', () => {
-    expect(MAX_IMPORT_ROWS).toBe(30000);
+  it('caps import at 5000 rows', () => {
+    expect(MAX_IMPORT_ROWS).toBe(5000);
   });
 });
 

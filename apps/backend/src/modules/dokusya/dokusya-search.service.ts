@@ -22,6 +22,7 @@ import {
   ShiharaiHoho,
 } from '@/common/enums';
 import { TANKA_TYPE_KODOKU } from '@/common/constants/tanka-type.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -40,7 +41,6 @@ import {
  * ACSMS-SCR-014 監査ラベル。core DokusyaService と同一値だが自己完結のため複製
  * （delete も ACSMS-SCR-014 を使うため core 側にも同名定数が残る）。
  */
-const SCREEN_NAME_SCR014 = '購読者明細検索画面 (ACSMS-SCR-014)';
 
 /** ACSMS-SCR-014 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
@@ -188,7 +188,7 @@ export class DokusyaSearchService {
    *        >30000 → 409 EXPORT_LIMIT_EXCEEDED。
    *   §4.4 行取得（pagination なし・30,000 件で hard-cap）。
    *   §4.5 14 列ヘッダ（検索結果テーブル準拠。手続種類/購読種別/配達先氏名/支払方法 含む、
-   *        支店/連絡先２/かな氏名 除く）。
+   *        支店/TEL2/かな氏名 除く）。
    *   §4.6 監査行（log_type=1, operation='EXPORT_EXCEL', after_value に record_count）。
    *   §4.7 ファイル名 `購読者一覧出力_YYYYMMDD_HHmmss.xlsx`(JST)。
    *   §4.8 エラーログは tx 外（remove() と同パターン）。
@@ -201,7 +201,7 @@ export class DokusyaSearchService {
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCREEN_NAME_SCR014,
+      ScreenName.ACSMS_SCR_014,
       TABLE_NAME,
       null,
     );
@@ -236,7 +236,7 @@ export class DokusyaSearchService {
         logType: LogType.USER_OPERATION,
         accountId: session.account_id,
         jaId: session.ja_id,
-        gamenName: SCREEN_NAME_SCR014,
+        gamenName: ScreenName.ACSMS_SCR_014,
         operation: AuditOperation.EXPORT_EXCEL,
         resultStatus: ResultStatus.SUCCESS,
         targetId: null,
@@ -453,6 +453,16 @@ export class DokusyaSearchService {
         { activeTankaFlg: query.active_tanka_flg },
       );
     }
+    // 購読者層分類（顧客CR 2026-08-24）。d.dokusyaso_bunrui は CSV
+    // （例 "0,1"）なので単純な `=` ではなく、両端をカンマで挟んで
+    // `,code,` がトークン単位で含まれるかを見る（"1" が "10" 等へ
+    // 誤マッチしないようにする定番の CSV 部分一致イディオム）。
+    if (query.dokusyaso_bunrui !== undefined) {
+      qb.andWhere(
+        "(',' || d.dokusyaso_bunrui || ',') LIKE :dokusyasoBunruiPattern",
+        { dokusyasoBunruiPattern: `%,${query.dokusyaso_bunrui},%` },
+      );
+    }
   }
 
   /** 部分一致（`ILIKE %param%`）フィルタ — 非空のとき適用。 */
@@ -497,7 +507,7 @@ export class DokusyaSearchService {
       );
     }
     if (query.renrakusaki) {
-      // 連絡先: 購読者連絡先1/2 + 配達先連絡先1/2 を横断部分一致 OR。
+      // 連絡先: 購読者TEL1/2 + 配達先TEL1/2 を横断部分一致 OR。
       qb.andWhere(
         "(d.renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +
           "OR d.haitatsu_renrakusaki_1 ILIKE '%' || :renrakusaki || '%' " +

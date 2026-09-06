@@ -82,7 +82,17 @@ const blankOrBool = ({ value }: { value: unknown }): unknown => {
  * 片方を変えたら両方更新すること。
  */
 const HIRAGANA_NAME_RE = /^[ぁ-ゖー0-9０-９\s]+$/u;
-const HIRAGANA_NAME_MSG = 'ひらがなで入力してください。';
+// FE 側 HIRAGANA_MSG (DokusyaFormView.vue) と同一文言 — 片方を変えたら両方更新すること。
+const HIRAGANA_NAME_MSG = 'ひらがな・数字で入力してください。';
+
+/**
+ * 氏名 (氏/名・配達先とも共通) は漢字・ひらがな・カタカナ・アルファベット・
+ * 数字を許容（顧客要件 2026-07・不具合修正 2026-08）。FE 側 `KANJI_RE` /
+ * BE 側 `create-dokusya.dto.ts` の `KANJI_NAME_RE` と同一文字集合 —
+ * 3箇所とも変えたら揃えて更新すること。
+ */
+const KANJI_NAME_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
+const KANJI_NAME_MSG = '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。';
 
 /**
  * 行の検証・書込みは `selected_columns` 対象列のみ（api.md §4.1「各行 rows[i]
@@ -177,11 +187,11 @@ export class ImportDokusyaRowDto {
   @MaxLength(20, { message: '支店コードは20文字以内で入力してください。' })
   shiten_code?: string;
 
-  @ApiPropertyOptional({ description: '組合員コード' })
+  @ApiPropertyOptional({ description: '組合員コード', maxLength: 10 })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
-  @MaxLength(20, { message: '組合員コードは20文字以内で入力してください。' })
+  @MaxLength(10, { message: '組合員コードは10文字以内で入力してください。' })
   kumiaiin_code?: string;
 
   @ApiPropertyOptional({ description: '氏名（姓・漢字）' })
@@ -189,6 +199,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(50, { message: '氏名（姓）は50文字以内で入力してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   shimei_sei?: string;
 
   @ApiPropertyOptional({ description: '氏名（名・漢字）' })
@@ -196,6 +207,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(50, { message: '氏名（名）は50文字以内で入力してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   shimei_mei?: string;
 
   @ApiPropertyOptional({ description: '氏名かな（姓）' })
@@ -292,18 +304,20 @@ export class ImportDokusyaRowDto {
   @MaxLength(100, { message: 'マンション名等は100文字以内で入力してください。' })
   tatemono_mei?: string;
 
-  @ApiPropertyOptional({ description: '連絡先１' })
+  @ApiPropertyOptional({ description: 'TEL1' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
-  @MaxLength(15, { message: '連絡先１は15文字以内で入力してください。' })
+  @MaxLength(15, { message: 'TEL1は15文字以内で入力してください。' })
+  @Matches(/^\d+$/, { message: 'TEL1は半角数字のみで入力してください（ハイフン不可）。' })
   renrakusaki_1?: string;
 
-  @ApiPropertyOptional({ description: '連絡先２' })
+  @ApiPropertyOptional({ description: 'TEL2' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
-  @MaxLength(15, { message: '連絡先２は15文字以内で入力してください。' })
+  @MaxLength(15, { message: 'TEL2は15文字以内で入力してください。' })
+  @Matches(/^\d+$/, { message: 'TEL2は半角数字のみで入力してください（ハイフン不可）。' })
   renrakusaki_2?: string;
 
   @ApiPropertyOptional({ description: '購読者情報と同じ（true: 配達先＝購読者住所）' })
@@ -347,18 +361,20 @@ export class ImportDokusyaRowDto {
   @MaxLength(100, { message: '配達先建物名は100文字以内で入力してください。' })
   haitatsu_tatemono_mei?: string;
 
-  @ApiPropertyOptional({ description: '配達先連絡先１' })
+  @ApiPropertyOptional({ description: '配達先TEL1' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
-  @MaxLength(15, { message: '配達先連絡先１は15文字以内で入力してください。' })
+  @MaxLength(15, { message: '配達先TEL1は15文字以内で入力してください。' })
+  @Matches(/^\d+$/, { message: '配達先TEL1は半角数字のみで入力してください（ハイフン不可）。' })
   haitatsu_renrakusaki_1?: string;
 
-  @ApiPropertyOptional({ description: '配達先連絡先２' })
+  @ApiPropertyOptional({ description: '配達先TEL2' })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
-  @MaxLength(15, { message: '配達先連絡先２は15文字以内で入力してください。' })
+  @MaxLength(15, { message: '配達先TEL2は15文字以内で入力してください。' })
+  @Matches(/^\d+$/, { message: '配達先TEL2は半角数字のみで入力してください（ハイフン不可）。' })
   haitatsu_renrakusaki_2?: string;
 
   @ApiPropertyOptional({ description: '配達先氏名（姓・漢字）' })
@@ -366,6 +382,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(50, { message: '配達先氏名（姓）は50文字以内で入力してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   haitatsu_shimei_sei?: string;
 
   @ApiPropertyOptional({ description: '配達先氏名（名・漢字）' })
@@ -373,6 +390,7 @@ export class ImportDokusyaRowDto {
   @IsOptional()
   @IsString()
   @MaxLength(50, { message: '配達先氏名（名）は50文字以内で入力してください。' })
+  @Matches(KANJI_NAME_RE, { message: KANJI_NAME_MSG })
   haitatsu_shimei_mei?: string;
 
   @ApiPropertyOptional({ description: '配達先氏名かな（姓）' })
@@ -507,10 +525,11 @@ export class ImportDokusyaRowDto {
   @MaxLength(10, { message: '購読開始日は10文字以内で入力してください。' })
   dokusya_kaishi_date?: string;
 
-  @ApiPropertyOptional({ description: '備考' })
+  @ApiPropertyOptional({ description: '備考', maxLength: 500 })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString()
+  @MaxLength(500, { message: '備考は最大500文字で指定してください。' })
   biko?: string;
 
   // 読者情報変更適用日 / 購読中止日 は行ではなく payload 直下へ移した

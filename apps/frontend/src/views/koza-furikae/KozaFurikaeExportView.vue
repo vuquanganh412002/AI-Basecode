@@ -19,6 +19,7 @@ import {
   getInitialKozaFurikae,
   previewKozaFurikae,
   exportKozaFurikae,
+  exportKozaFurikaeExcel,
   type ExportKozaFurikaeBody,
   type KozaPreviewRow,
   type KozaFurikaeError,
@@ -90,6 +91,7 @@ const fieldErrors = reactive<Record<FieldKey, string>>({
 });
 
 const submitting = ref(false);
+const exportingExcel = ref(false);
 
 // ── v1.1: プレビュー（作成開始）→ 金額編集 → ファイル作成 の2ステップ ──
 const previewRows = ref<KozaPreviewRow[]>([]);
@@ -394,6 +396,35 @@ async function onCreateFile(): Promise<void> {
   }
 }
 
+/**
+ * Excel出力 = レポートプレビューの内容（預金者名/引落支店/口座番号/金額）を
+ * Excel で出力・自動ダウンロードする。全銀フォーマット（ファイル作成）とは
+ * 別の読み取り専用出力で、t_koza_furikae は更新しない。
+ */
+async function onExportExcel(): Promise<void> {
+  if (!validateForCreate()) return;
+  if (exportingExcel.value) return;
+  exportingExcel.value = true;
+  clearInactiveTankaError();
+  try {
+    const { blob, filename } = await exportKozaFurikaeExcel(buildBody());
+    const [y, m, d] = (formState.hikiotoshi_date as string).split('-');
+    downloadBlob(blob, filename ?? `口座振替データ_${y}年${m}月${d}日.xlsx`);
+    notify.downloaded();
+  } catch (err) {
+    if (applyInactiveTankaError(err)) {
+      previewed.value = false;
+      previewRows.value = [];
+      return;
+    }
+    if ((err as { error_code?: string })?.error_code === 'NO_TARGET_DATA') {
+      message.warning('対象データがありません。'); // ACSMS-MSG-020-002
+    }
+  } finally {
+    exportingExcel.value = false;
+  }
+}
+
 // D1: フィルタ（年月日/管理支店/支店/口座支店）を変更したらプレビューを破棄し、
 // 「作成開始」の再実行を要求する（古いプレビューでファイル作成させない）。
 watch(
@@ -425,6 +456,7 @@ defineExpose({
   inactiveTankaTotal,
   onPreview,
   onCreateFile,
+  onExportExcel,
 });
 </script>
 
@@ -725,6 +757,14 @@ defineExpose({
         @click="onCreateFile"
       >
         ファイル作成
+      </a-button>
+      <a-button
+        v-if="previewed && previewRows.length > 0"
+        :loading="exportingExcel"
+        data-test="export-excel-btn"
+        @click="onExportExcel"
+      >
+        Excel出力
       </a-button>
     </div>
   </a-form>

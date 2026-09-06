@@ -14,7 +14,9 @@ import { useAuthStore } from '@/stores/auth.store';
  *    view: OshiraseManagementView.applyServerErrors
  *  - EXPORT_LIMIT_EXCEEDED: ACSMS-SCR-030 ログ参照の出力上限超過。view: LogListView
  *  - IMPORT_VALIDATION_ERROR: ACSMS-SCR-016 / ACSMS-SCR-019 Excel取込の行別 errors[]。
- *    view 側で詳細表示（販売店: toast、購読者: 行パネル）するためグローバルは不要。
+ *    view 側で常設パネルに行/項目単位の詳細を表示する（不具合修正2026-08 —
+ *    以前は販売店(SCR-019)だけ要約トーストも重ねて出しておりパネルと二重表示
+ *    だった。購読者(SCR-016)と同じくパネルのみに統一）ためグローバルは不要。
  */
 const VIEW_HANDLED_CODES: ReadonlySet<string> = new Set([
   'DEADLINE_NOTICE_DUPLICATE',

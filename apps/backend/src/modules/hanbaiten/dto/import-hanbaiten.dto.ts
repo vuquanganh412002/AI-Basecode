@@ -12,6 +12,7 @@ import {
   IsString,
   Length,
   Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -91,7 +92,7 @@ const excelToBool = ({ value }: { value: unknown }) => {
  * バリデーション規則は ACSMS-SCR-019-api.md §4.1 準拠。
  * - `import_mode` ∈ { NEW, UPDATE }（顧客要件 2026-07：全項目更新を廃止し更新1本に
  *   統合。UPDATE は selected_columns の列のみ更新、全列更新は全列を含める）
- * - `selected_columns` は物理列名 1..23 件。service 層が多層防御として
+ * - `selected_columns` は物理列名 1..24 件。service 層が多層防御として
  *   `hanbaiten_code` 含有を再検証（規則が「selected_columns に hanbaiten_code 必須」に
  *   帰着するため DTO 層の相関チェックは不要）。
  * - `rows` は 1..500 件。将来クライアントが DTO 上限をバイパスしても
@@ -137,6 +138,17 @@ export class ImportHanbaitenRowDto {
   @IsString({ message: 'インボイス番号は文字列で指定してください。' })
   @MaxLength(20, { message: 'インボイス番号は最大20文字で指定してください。' })
   torihikisaki_no?: string;
+
+  // 顧客CR 2026-08-24 — 都道府県が JA 追従の read-only から自由選択になった
+  // ACSMS-SCR-017 の作成/更新画面に合わせ、取込にも任意列として追加。
+  // 未入力（列非選択 or セル空）時は service 層で JA の都道府県に fallback
+  // （[todofuken-default] — hanbaiten-import.service.ts 参照）。
+  @ApiPropertyOptional({ description: '都道府県コード（2桁、任意）', minLength: 2, maxLength: 2 })
+  @Transform(blankToUndef)
+  @IsOptional()
+  @IsString({ message: '都道府県コードは文字列で指定してください。' })
+  @Length(2, 2, { message: '都道府県コードは2桁で指定してください。' })
+  todofuken_code?: string;
 
   @ApiPropertyOptional({ description: '郵便番号(7桁)' })
   @Transform(blankToUndef)
@@ -212,8 +224,13 @@ export class ImportHanbaitenRowDto {
   @Transform(blankOrNumber)
   @IsOptional()
   @IsInt({ message: '配達手数料支払サイクルは整数で指定してください。' })
-  @Min(0, {
-    message: '配達手数料支払サイクルは0以上で指定してください。',
+  // 不具合修正2026-08（#58485）: 支払サイクルは月数のため1〜12の範囲のみ許容。
+  // 従来は下限(0以上)のみで、13以上等の範囲外値も取込めてしまっていた。
+  @Min(1, {
+    message: '配達手数料支払サイクルは1〜12の範囲で指定してください。',
+  })
+  @Max(12, {
+    message: '配達手数料支払サイクルは1〜12の範囲で指定してください。',
   })
   haitatsuryo_shiharai_cycle?: number;
 
@@ -290,12 +307,12 @@ export class ImportHanbaitenDto {
   import_mode!: (typeof IMPORT_MODES)[number];
 
   @ApiProperty({
-    description: '取込対象列(物理名)。1〜23件。',
+    description: '取込対象列(物理名)。1〜24件。',
     type: [String],
   })
   @IsArray({ message: '取込対象列は配列で指定してください。' })
   @ArrayMinSize(1, { message: '取込対象列は1件以上で指定してください。' })
-  @ArrayMaxSize(23, { message: '取込対象列は23件以下で指定してください。' })
+  @ArrayMaxSize(24, { message: '取込対象列は24件以下で指定してください。' })
   @IsString({ each: true, message: '取込対象列は文字列で指定してください。' })
   selected_columns!: string[];
 

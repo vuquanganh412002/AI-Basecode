@@ -1968,7 +1968,7 @@ Click button 取込開始 → dialog xác nhận chọn "はい"
 Kiểm tra DB: `SELECT address, tel, updated_at, updated_by FROM m_hanbaiten WHERE ja_id = 1 AND hanbaiten_code = 'H001'`
 
 ステップ4：
-Kiểm tra DB: `SELECT * FROM t_log WHERE operation = 'IMPORT_UPDATE_ALL' ORDER BY log_datetime DESC LIMIT 1`
+Kiểm tra DB: `SELECT * FROM t_log WHERE operation = 'IMPORT_UPDATE' ORDER BY log_datetime DESC LIMIT 1`
 
 ### 期待結果
 

@@ -23,6 +23,8 @@ import {
   fetchFkInJa,
 } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import {
   paginate,
   paginateCursor,
@@ -56,14 +58,9 @@ import {
   type SearchAccountsDto,
 } from './dto/search-accounts.dto';
 
-const SCREEN_NAME = 'アカウント設定 (header)';
 const TABLE_NAME = 'm_account';
 
-// ACSMS-SCR-024 — アカウントマスタ明細検索画面
-const SCR024_SCREEN_NAME = 'アカウントマスタ明細検索画面 (ACSMS-SCR-024)';
 
-// ACSMS-SCR-025 — アカウントマスタ登録画面
-const SCR025_SCREEN_NAME = 'アカウントマスタ登録画面 (ACSMS-SCR-025)';
 const BCRYPT_SALT_ROUNDS = 10;
 
 /**
@@ -230,7 +227,7 @@ export class AccountService {
     const auditCtx: AuditOperationContext = {
       accountId,
       jaId: account.jaId === null ? null : Number(account.jaId),
-      screen: SCREEN_NAME,
+      screen: ScreenName.ACCOUNT_SETTINGS_HEADER,
       table: TABLE_NAME,
       targetId: accountId,
       ipAddress: ctx.ipAddress,
@@ -500,7 +497,7 @@ export class AccountService {
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCR024_SCREEN_NAME,
+      ScreenName.ACSMS_SCR_024,
       TABLE_NAME,
       accountId,
     );
@@ -563,7 +560,7 @@ export class AccountService {
     // 防ぐ。削除は commit 済みなので Redis 障害でも応答成功のまま（失敗は warn のみ）。
     await this.revokeSessionsSafely(accountId, 'account_deleted');
 
-    return { message: '削除しました。' };
+    return { message: SuccessMessage.DELETED };
   }
 
   /**
@@ -685,7 +682,7 @@ export class AccountService {
     };
 
     const auditCtxFactory = (targetId: number | null): AuditOperationContext =>
-      buildAuditCtx(session, req, SCR025_SCREEN_NAME, TABLE_NAME, targetId);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_025, TABLE_NAME, targetId);
 
     let savedId: number;
     try {
@@ -725,7 +722,7 @@ export class AccountService {
       // クラッシュせず 404 として返す。
       throw new NotFoundException('アカウント');
     }
-    return { data: toAccountDetail(row), message: '登録しました。' };
+    return { data: toAccountDetail(row), message: SuccessMessage.CREATED };
   }
 
   // ─── ACSMS-API-025-003 — PUT /api/v1/accounts/:account_id ────────────
@@ -791,7 +788,7 @@ export class AccountService {
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCR025_SCREEN_NAME,
+      ScreenName.ACSMS_SCR_025,
       TABLE_NAME,
       accountId,
     );
@@ -835,7 +832,7 @@ export class AccountService {
     if (!row) {
       throw new NotFoundException('アカウント');
     }
-    return { data: toAccountDetail(row), message: '更新しました。' };
+    return { data: toAccountDetail(row), message: SuccessMessage.UPDATED };
   }
 
   /**

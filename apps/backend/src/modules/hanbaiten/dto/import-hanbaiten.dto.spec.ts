@@ -2,7 +2,7 @@
 //
 // Drives src/modules/hanbaiten/dto/import-hanbaiten.dto.ts. Validation
 // rules sourced from api.md §4.1 リクエストのバリデーション (top-level
-// fields + nested rows[i]). 23-column nested row validation lives in
+// fields + nested rows[i]). 24-column nested row validation lives in
 // ImportHanbaitenRowDto (referenced via @ValidateNested / @Type).
 
 import 'reflect-metadata';
@@ -84,7 +84,7 @@ describe('ImportHanbaitenDto', () => {
   });
 
   // ─── selected_columns ────────────────────────────────────────────────
-  describe('selected_columns (required, 1-23 items, must include hanbaiten_code)', () => {
+  describe('selected_columns (required, 1-24 items, must include hanbaiten_code)', () => {
     it('should reject when selected_columns is missing', async () => {
       const errs = await check({ ...VALID, selected_columns: undefined });
       expect(errs.some((e) => e.property === 'selected_columns')).toBe(true);
@@ -100,7 +100,7 @@ describe('ImportHanbaitenDto', () => {
       expect(errs.some((e) => e.property === 'selected_columns')).toBe(true);
     });
 
-    it('should reject when selected_columns has more than 23 entries', async () => {
+    it('should reject when selected_columns has more than 24 entries', async () => {
       const tooMany = [...HANBAITEN_IMPORT_COLUMNS, 'extra_unknown_column'];
       const errs = await check({ ...VALID, selected_columns: tooMany });
       expect(errs.some((e) => e.property === 'selected_columns')).toBe(true);
@@ -260,6 +260,33 @@ describe('ImportHanbaitenDto', () => {
       });
       const flat = flattenProperties(errs);
       expect(flat.some((p) => /rows.*torihikisaki_no/.test(p))).toBe(true);
+    });
+
+    // 顧客CR 2026-08-24 — 都道府県が取込にも任意列として追加された
+    // （ACSMS-SCR-017 作成/更新画面の自由選択化に合わせる）。
+    it('should accept when todofuken_code is omitted (falls back to JA default in service)', async () => {
+      const { todofuken_code: _drop, ...rowWithout } = buildImportRow();
+      const errs = await check({ ...VALID, rows: [rowWithout] });
+      const flat = flattenProperties(errs);
+      expect(flat.some((p) => /rows.*todofuken_code/.test(p))).toBe(false);
+    });
+
+    it('should accept when todofuken_code is exactly 2 chars', async () => {
+      const errs = await check({
+        ...VALID,
+        rows: [buildImportRow({ todofuken_code: '13' })],
+      });
+      const flat = flattenProperties(errs);
+      expect(flat.some((p) => /rows.*todofuken_code/.test(p))).toBe(false);
+    });
+
+    it('should reject when todofuken_code length is not 2', async () => {
+      const errs = await check({
+        ...VALID,
+        rows: [buildImportRow({ todofuken_code: '1' })],
+      });
+      const flat = flattenProperties(errs);
+      expect(flat.some((p) => /rows.*todofuken_code/.test(p))).toBe(true);
     });
 
     it('should reject when yubin_no length is not 7', async () => {

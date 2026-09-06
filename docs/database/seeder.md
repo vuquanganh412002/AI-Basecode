@@ -204,10 +204,10 @@
 | 17 | ja.view | ○ | × | ○ | ○ | × |
 | 18 | ja.update | ○ | × | ○ | ○ | × |
 | 19 | ja.delete | ○ | × | × | × | × |
-| 20 | shiten.create | × | × | ○ | ○ | ○ |
-| 21 | shiten.view | × | × | ○ | ○ | ○ |
-| 22 | shiten.update | × | × | ○ | ○ | ○ |
-| 23 | shiten.delete | × | × | ○ | ○ | ○ |
+| 20 | shiten.create | ○ | × | ○ | ○ | ○ |
+| 21 | shiten.view | ○ | × | ○ | ○ | ○ |
+| 22 | shiten.update | ○ | × | ○ | ○ | ○ |
+| 23 | shiten.delete | ○ | × | ○ | ○ | ○ |
 | 24 | kanri_shiten.create | ○ | × | × | × | × |
 | 25 | kanri_shiten.view | ○ | × | ○ | ○ | ○ |
 | 26 | kanri_shiten.update | ○ | × | ○ | ○ | ○ |
@@ -235,7 +235,7 @@
 
 | ロール | role_id | 権限数 | 付与される権限 |
 | --- | --- | --- | --- |
-| 日農（管理者） | 1 | 20 | ja.*, kanri_shiten.*, account.*, oshirase.*, file.upload, file.download, log.view, role.view |
+| 日農（管理者） | 1 | 24 | ja.*, kanri_shiten.*, shiten.*, account.*, oshirase.*, file.upload, file.download, log.view, role.view |
 | 日農（担当者） | 2 | 7 | hanbaiten.{create,view,update,daiko_input}, file.upload, file.download, log.view |
 | 中央会 | 3 | 30 | dokusya.*, hanbaiten.{create,view,update,delete,import}, tanka.*, ja.{view,update}, shiten.*, kanri_shiten.{view,update}, file.download, log.view, koza_furikae.export, haitatsuryo.export, report.* |
 | JA本店 | 4 | 30 | （中央会と同一） |
@@ -253,7 +253,7 @@
 
 ### シードデータ
 
-#### role_id=1 日農（管理者）— 20件
+#### role_id=1 日農（管理者）— 24件
 
 | role_permission_id | role_id | permission_id | permission_code |
 | --- | --- | --- | --- |
@@ -277,8 +277,17 @@
 | 18 | 1 | 37 | file.download |
 | 19 | 1 | 38 | log.view |
 | 114 | 1 | 44 | role.view |
+| ※後続 | 1 | 20 | shiten.create |
+| ※後続 | 1 | 21 | shiten.view |
+| ※後続 | 1 | 22 | shiten.update |
+| ※後続 | 1 | 23 | shiten.delete |
 
 ※ role.view は後から追加された権限のため、role_permission_id は連番の末尾（114）になる。
+※ shiten.create/view/update/delete は顧客CR 2026-08-24 で後から追加された権限
+（migration `1787385200000-GrantShitenAllToNichinoAdmin`、単発 INSERT）。
+`locked = TRUE`（1711900900003 の `UPDATE ... SET locked = TRUE` と同じ
+扱い — ロール管理画面（ACSMS-SCR-027）から解除不可にするベースライン化）。
+role_permission_id は連番の末尾になるが自動採番のため固定値を仮定しないこと。
 
 #### role_id=2 日農（担当者）— 7件
 
@@ -567,7 +576,7 @@
 
 | code_id | code_category | code_value | code_name | code_name_short | sort_order | biko | deleted_at | created_at | created_by | updated_at | updated_by |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 29 | YUBIN_KUBUN | 0 | 空 | 空 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
+| 29 | YUBIN_KUBUN | 0 | 配達 | 配達 | 1 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 | 30 | YUBIN_KUBUN | 1 | 郵送 | 郵送 | 2 | | NULL | 2026-01-01 | SYSTEM_MIGRATION | 2026-01-01 | SYSTEM_MIGRATION |
 
 ### 5.12 メールマガジン (MAIL_MAGAZINE_FLG)

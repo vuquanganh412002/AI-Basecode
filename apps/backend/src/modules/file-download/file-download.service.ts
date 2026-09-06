@@ -17,6 +17,8 @@ import { buildAuditCtx } from '@/common/utils/audit-context';
 import { compactTimestampJst } from '@/common/utils/datetime';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import { buildZipArchive } from '@/common/utils/zip';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { FILE_DOWNLOAD_TARGET_TABLE } from '@/common/constants/audit-target-table.constant';
 import {
   contentTypeFor,
   type DownloadResult,
@@ -29,8 +31,6 @@ import { StorageService } from '@/modules/storage/storage.service';
 import { FileDownloadListItemDto } from './dto/file-download-response.dto';
 import { SearchFileDownloadDto } from './dto/search-file-download.dto';
 
-const SCREEN_NAME = 'ファイルダウンロード画面 (ACSMS-SCR-022)';
-const TABLE_NAME = 't_file_download';
 
 type Numericish = number | string | null;
 type Dateish = Date | string | null;
@@ -280,8 +280,8 @@ export class FileDownloadService {
     const ctx = buildAuditCtx(
       session,
       req,
-      SCREEN_NAME,
-      TABLE_NAME,
+      ScreenName.ACSMS_SCR_022,
+      FILE_DOWNLOAD_TARGET_TABLE,
       Number(row.fileDownloadId),
     );
 
@@ -348,7 +348,7 @@ export class FileDownloadService {
     );
     const fileName = `一括ダウンロード_${compactTimestampJst()}.zip`;
 
-    const ctx = buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null);
+    const ctx = buildAuditCtx(session, req, ScreenName.ACSMS_SCR_022, FILE_DOWNLOAD_TARGET_TABLE, null);
     try {
       // 一括も t_file_download への INSERT はせず、1件の t_log のみ。
       await this.auditLog.logOperation({

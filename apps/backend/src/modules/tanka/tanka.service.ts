@@ -18,6 +18,8 @@ import {
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { ZEI_KUBUN_SOTOZEI } from '@/common/constants/zei-kubun.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import { assertJaScope, applyJaScope } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
 import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
@@ -36,8 +38,6 @@ import { TankaResponseDto } from './dto/tanka-response.dto';
 import { toTankaResponse } from './tanka.mapper';
 
 /** 画面別 audit-context ラベル。 */
-const SCREEN_NAME_SCR002 = '単価マスタ明細検索画面 (ACSMS-SCR-002)';
-const SCREEN_NAME_SCR003 = '単価マスタ登録画面 (ACSMS-SCR-003)';
 const TABLE_NAME = 'm_tanka';
 
 
@@ -124,12 +124,17 @@ const SORT_COLUMN_MAP: Record<TankaSearchSortBy, string> = {
 /**
  * tanka を参照する行が存在すると削除をブロックするテーブル群。
  * docs/design/ACSMS-SCR-002/ACSMS-SCR-002-api.md §4.4 準拠。
- * m_hanbaiten は haitatsuryo_tanka_id、t_dokusya は tanka_id で判定。両カラムは
- * assertNoRelatedRows() が補間するため、呼び出し側はハードコードのタプルのみ渡す(ユーザ入力不可)。
+ * m_hanbaiten は haitatsuryo_tanka_id、t_dokusya/t_dokusya_rireki は
+ * tanka_id で判定。各カラムは assertNoRelatedRows() が補間するため、
+ * 呼び出し側はハードコードのタプルのみ渡す(ユーザ入力不可)。第3要素
+ * （既定 true）は対象テーブルに `deleted_at` 列があるか — 無いテーブル
+ * （t_dokusya_rireki は append-only）に true のまま渡すと SQL エラーになる。
  */
-const RELATED_FK_CHECKS: ReadonlyArray<readonly [string, string]> = [
+const RELATED_FK_CHECKS: ReadonlyArray<readonly [string, string, boolean?]> = [
   ['m_hanbaiten', 'haitatsuryo_tanka_id'],
   ['t_dokusya', 'tanka_id'],
+  // 購読者履歴テーブル — append-only（deleted_at 列なし）。
+  ['t_dokusya_rireki', 'tanka_id', false],
 ];
 
 type TankaListItem = Pick<
@@ -268,12 +273,17 @@ export class TankaService {
     assertJaScope(Number(before.jaId), session, '単価');
 
     // [fk-conflict-check] — 関連テーブルに参照行が残っていれば削除ブロック
-    for (const [table, fk] of RELATED_FK_CHECKS) {
-      await assertNoRelatedRows(this.dataSource, [table], fk, tankaId);
+    for (const [table, fk, hasDeletedAt = true] of RELATED_FK_CHECKS) {
+      await assertNoRelatedRows(
+        this.dataSource,
+        [hasDeletedAt ? table : { table, hasDeletedAt: false }],
+        fk,
+        tankaId,
+      );
     }
 
     const ctxBuilder = (): AuditOperationContext =>
-      buildAuditCtx(session, req, SCREEN_NAME_SCR002, TABLE_NAME, tankaId);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_002, TABLE_NAME, tankaId);
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -291,7 +301,7 @@ export class TankaService {
         await this.auditLog.logDelete(ctxBuilder(), before, manager);
       });
 
-      return { message: '削除しました。' };
+      return { message: SuccessMessage.DELETED };
     } catch (err) {
       // [audit-error-log] — トレース保持のためロールバック済みトランザクションの外で
       await this.auditLog.logError(ctxBuilder(), AuditOperation.DELETE, err as Error);
@@ -365,7 +375,7 @@ export class TankaService {
     }
 
     const ctxBuilder = (id?: number | null): AuditOperationContext =>
-      buildAuditCtx(session, req, SCREEN_NAME_SCR003, TABLE_NAME, id ?? null);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_003, TABLE_NAME, id ?? null);
 
     try {
       const saved = await this.dataSource.transaction(async (manager) => {
@@ -445,7 +455,7 @@ export class TankaService {
 
     const accountId = String(session.account_id);
     const ctxBuilder = (): AuditOperationContext =>
-      buildAuditCtx(session, req, SCREEN_NAME_SCR003, TABLE_NAME, tankaId);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_003, TABLE_NAME, tankaId);
 
     // [input-validation] — 適用開始日が過去になると不変。FE の read-only を反映し、
     // 履歴の価格開始日を書き換える curl バイパスを防ぐ。silent-drop パターン

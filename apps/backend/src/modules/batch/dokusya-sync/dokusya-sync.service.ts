@@ -11,9 +11,15 @@ import {
   insertScheduledKaiyaku,
   revokeScheduledKaiyaku,
 } from '@/modules/dokusya/dokusya-history.writer';
-import { loadActiveKaiyakuRow } from '@/modules/dokusya/dokusya-history.query';
+import {
+  findBefore,
+  loadActiveKaiyakuRow,
+} from '@/modules/dokusya/dokusya-history.query';
 import { Dokusya } from '@/database/entities/dokusya.entity';
-import { DenshiSyncState } from '@/database/entities/denshi-sync-state.entity';
+import {
+  DenshiSyncState,
+  type FailedSyncRow,
+} from '@/database/entities/denshi-sync-state.entity';
 import {
   DenshiShoninStatus,
   DokusyaShubetsu,
@@ -21,6 +27,7 @@ import {
   TetsuzukiShurui,
 } from '@/common/enums';
 import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { todayIsoJst } from '@/common/utils/datetime';
 import type { BatchJob } from '@/batch/batch-job.interface';
 import type { DateOnly, DokusyaFields } from '@/modules/dokusya/dokusya-history.types';
@@ -51,14 +58,11 @@ export const PAGE_SIZE = 1_000;
  */
 const MAX_ROWS_PER_RUN = 500_000;
 
-/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
-const BATCH_SCREEN = '電子版読者同期バッチ (dokusya-sync)';
-
 /**
  * #57986: 電子版側の payment_end_ym 変更で既存の解約予約行の中止日を差し替える
  * 際、旧予約行の取消理由（対象行・打ち消し行の両方の biko に記録される）。
  */
-const KAIYAKU_REVOKE_REASON_SYNC = '購読中止日の変更（電子版同期 #57986）';
+const KAIYAKU_REVOKE_REASON_SYNC = '購読中止日の変更';
 
 interface SyncCounts {
   read: number;
@@ -76,8 +80,13 @@ type KanriShitenMap = Map<string, { kanriShitenId: number; jaId: number }>;
 type HanbaitenMap = Map<string, number>;
 
 /** ページングの読み取り位置（`ORDER BY chg_ts, id` 上の直前行）。 */
-/** doSync の停止理由。null = 差分を読み切った（正常完走）。 */
-type SyncStop = 'blocked' | 'cap';
+/**
+ * doSync の停止理由。null = 差分を読み切った（正常完走）。
+ * 行単位の失敗は `stop` を発生させない — その行だけ skip して次の行へ進み、
+ * {@link FailedSyncRow} の再試行キューに積む（2026-08 運用要望: 1件の異常データで
+ * バッチ全体が止まり続けるのを防ぐ）。
+ */
+type SyncStop = 'cap';
 
 interface PageCursor {
   ts: Date;
@@ -176,6 +185,30 @@ export class DokusyaSyncService implements BatchJob {
       failed: 0,
     };
 
+    // ダミー販売店が未整備の JA を記録し、警告を 1 実行 1 JA に抑える
+    // （数万件の電子版読者がいる JA だと行ごとに出すとログが溢れる）。
+    const warnedNoDummyJa = new Set<number>();
+
+    // ── 前回失敗行の再試行キュー ───────────────────────────────────────
+    // watermark 経路（chg_ts/id の差分）とは別に、id 直指定で毎回再試行する。
+    // 成功 or 対象外（fetchOne 0件）になったら取り除く。上限なし — 直るまで
+    // 毎回リトライする（2026-08 運用要望）。
+    // fullSync=true のときは実行しない — 全件走査が users テーブル全体を
+    // watermark 抜きで読むので、キュー内の id も含めて自然に再訪される
+    // （id 直指定の重複クエリを避ける）。fullSync=false（通常運用）でのみ実行。
+    const failedRows: FailedSyncRow[] = Array.isArray(state.failedRows)
+      ? [...state.failedRows]
+      : [];
+    if (!fullSync) {
+      await this.retryFailedRows(
+        failedRows,
+        kanriMap,
+        hanbaitenMap,
+        counts,
+        warnedNoDummyJa,
+      );
+    }
+
     // ── watermark の前進管理 ───────────────────────────────────────────
     // 初期値は保存済み値。full-sync は古い行から読むため、ここから後退させない。
     let safeId = Number(state.lastSourceId ?? 0);
@@ -186,7 +219,6 @@ export class DokusyaSyncService implements BatchJob {
     // watermark 以下」の未処理行が生まれ、二度と差分に乗らない。行ごとの max() では
     // なくグループ完了時にだけコミットし、中断時は最終グループを捨てることで、
     // 未処理行は必ず `chg_ts > wTs` で再取得される。
-    // （2026-07-29 実データ検証: 失敗行を追い越して 95 件が恒久 miss した事象の一般化。）
     let groupTs: Date | null = null;
     let groupMaxId = 0;
     const commitGroup = (): void => {
@@ -201,34 +233,37 @@ export class DokusyaSyncService implements BatchJob {
       if (groupTs !== null && ts.getTime() !== groupTs.getTime()) commitGroup();
     };
 
-    // ダミー販売店が未整備の JA を記録し、警告を 1 実行 1 JA に抑える
-    // （数万件の電子版読者がいる JA だと行ごとに出すとログが溢れる）。
-    const warnedNoDummyJa = new Set<number>();
-
-    // 1行ぶんの処理。watermark の前進は「グループ完了」時だけなので、
-    // 呼び出し側（processPage）へ判定結果を返して制御を任せる。
-    const handleRow = async (u: DenshiUserRow): Promise<'ok' | 'failed'> => {
+    // 1行ぶんの処理。失敗しても skip 行と同様に前進する — 二度と読めなくなる
+    // リスクは {@link retryFailedRows} の再試行キューが吸収する（2026-07-29
+    // 実データ検証: 失敗行を追い越して 95 件が恒久 miss した事象への対策として
+    // 元々は「1件失敗したらバッチ全体を止める」設計だったが、それだと無関係な
+    // 後続読者まで同期が止まり続ける。今は「失敗行だけ skip + 再試行キューへ」
+    // に変更し、両方を同時に満たす — 2026-08 運用要望）。
+    const handleRow = async (u: DenshiUserRow): Promise<void> => {
       const id = Number(u.id);
       const ts: Date = this.chgTs(u) ?? groupTs ?? safeTs;
       try {
         await this.upsertOne(u, kanriMap, hanbaitenMap, counts, warnedNoDummyJa);
+        // 通常の差分/全件走査でたまたま同じ行を拾い直して成功した場合も、
+        // 再試行キューに古いエントリが残ったままにならないよう取り除く
+        // （fullSync=true では retryFailedRows を呼ばないので、ここが唯一の
+        // 解消経路になる）。
+        this.removeFailedRow(failedRows, id);
       } catch (err) {
-        // 失敗行のグループは未コミットのまま残し、次回必ず読み直させる。
-        commitIfNewGroup(ts);
         counts.failed++;
+        const message = (err as Error).message;
         this.logger.error({
           event: 'dokusya_sync.record_error',
           denshi_kaiin_id: u.id,
-          message: (err as Error).message,
+          message,
         });
-        return 'failed';
+        this.recordFailedRow(failedRows, id, message);
       }
-      // skip 行は「業務判断で取り込まない」と決めた行なので前進してよい
-      // （マスタ整備後の取込は全件同期で拾う）。
+      // 成功行・業務skip行・失敗行のいずれも「この行の処理は完了した」ので前進する
+      // （失敗行は再試行キューに積んだので恒久 miss しない）。
       commitIfNewGroup(ts);
       groupTs = ts;
       if (Number.isFinite(id) && id > groupMaxId) groupMaxId = id;
-      return 'ok';
     };
 
     // 1ページぶんを処理し、停止理由（あれば）と読み取り位置を返す。
@@ -250,10 +285,7 @@ export class DokusyaSyncService implements BatchJob {
         }
         counts.read++;
 
-        const result = await handleRow(u);
-        // 失敗後も同一ページの残りは診断目的で処理を続けるが、watermark は
-        // 進めない（失敗行を追い越さない）。
-        if (result === 'failed') stop = 'blocked';
+        await handleRow(u);
       }
       return { cursor, stop };
     };
@@ -289,22 +321,31 @@ export class DokusyaSyncService implements BatchJob {
       });
     }
 
-    await this.saveState(safeId, safeTs);
+    await this.saveState(safeId, safeTs, failedRows);
     const summary = {
       ...counts,
       pages,
       full_sync: fullSync,
       stopped: stop ?? 'done',
+      // 今回時点で未解決の再試行キュー件数（0 なら全て解消済み）。
+      pending_retry: failedRows.length,
+      // 未解決の失敗行の 電子版 users.id（denshi_kaiin_id）のみ（配列）。
+      // キー名に denshi_kaiin_id を明示するのは、t_dokusya の PK（dokusya_id）
+      // と混同されないようにするため。エラー内容/attempts は
+      // t_denshi_sync_state.failed_rows に既に保持されており実行毎に重複させると
+      // 失敗件数が多いときに t_log 1行が肥大化するため、ここでは id だけに絞る
+      // （どの読者か分かれば failed_rows か CloudWatch record_error で原因を追える）。
+      failed_denshi_kaiin_ids: failedRows.map((r) => r.denshiKaiinId),
     };
     this.logger.log({ event: 'dokusya_sync.summary', ...summary });
 
     // 実行サマリを t_log へ 1 行（顧客要望 2026-08）。
-    // 行単位の監査ではないので「どの購読者がどう変わったか」までは追えない。
-    // まずは「いつ・何件動いたか」を DB に残し、CloudWatch を見られない
-    // 運用者でも実行痕跡を追えるようにする段階的対応。
-    // counts.failed > 0 なら WARNING（個々の失敗は record_error のログを参照）。
+    // 行単位の監査ではないので「どの購読者がどう変わったか」までは追えない
+    // （成功/skip の内訳は summary.counts のみ）。失敗行は
+    // summary.failed_denshi_kaiin_ids に denshi_kaiin_id だけ積む — 原因調査は
+    // t_denshi_sync_state.failed_rows か CloudWatch record_error を参照する。
     await logBatchRun(this.auditLog, {
-      screen: BATCH_SCREEN,
+      screen: ScreenName.DOKUSYA_SYNC_BATCH,
       // 実行者名は t_dokusya_rireki.created_by と同じ値。監査列と突き合わせて
       // 「この行は同期バッチが書いた」と辿れるようにする。
       operation: '電子版読者同期',
@@ -327,15 +368,98 @@ export class DokusyaSyncService implements BatchJob {
     return state;
   }
 
-  private async saveState(maxId: number, maxTs: Date): Promise<void> {
+  private async saveState(
+    maxId: number,
+    maxTs: Date,
+    failedRows: FailedSyncRow[],
+  ): Promise<void> {
     await this.mainDb.getRepository(DenshiSyncState).update(
       { batchName: BATCH_NAME },
       {
         lastSourceId: String(maxId),
         lastSourceUpdatedAt: maxTs,
         lastRunAt: new Date(),
+        failedRows,
       },
     );
+  }
+
+  // ── 失敗行の再試行キュー ────────────────────────────────────────────
+  /**
+   * 再試行キューに残っている行を、watermark とは別に id 直指定で再試行する
+   * （`failedRows` を直接書き換える）。
+   * - fetchOne が 0 件 → 抽出条件から外れた（削除/対象外化）ので取り除く。
+   * - upsertOne 成功 → 取り除く。
+   * - 失敗 → attempts/lastError/lastFailedAt を更新して残す（上限なし）。
+   */
+  private async retryFailedRows(
+    failedRows: FailedSyncRow[],
+    kanriMap: KanriShitenMap,
+    hanbaitenMap: HanbaitenMap,
+    counts: SyncCounts,
+    warnedNoDummyJa: Set<number>,
+  ): Promise<void> {
+    // 反復中に failedRows へ削除/更新が入るのでスナップショットを回す。
+    for (const row of [...failedRows]) {
+      const u = await this.fetchOne(row.denshiKaiinId);
+      if (!u) {
+        this.removeFailedRow(failedRows, row.denshiKaiinId);
+        this.logger.log({
+          event: 'dokusya_sync.retry_dropped_not_eligible',
+          denshi_kaiin_id: row.denshiKaiinId,
+        });
+        continue;
+      }
+      try {
+        await this.upsertOne(u, kanriMap, hanbaitenMap, counts, warnedNoDummyJa);
+        this.removeFailedRow(failedRows, row.denshiKaiinId);
+        this.logger.log({
+          event: 'dokusya_sync.retry_succeeded',
+          denshi_kaiin_id: row.denshiKaiinId,
+        });
+      } catch (err) {
+        counts.failed++;
+        const message = (err as Error).message;
+        this.logger.error({
+          event: 'dokusya_sync.record_error',
+          denshi_kaiin_id: row.denshiKaiinId,
+          message,
+        });
+        this.recordFailedRow(failedRows, row.denshiKaiinId, message);
+      }
+    }
+  }
+
+  private recordFailedRow(
+    failedRows: FailedSyncRow[],
+    denshiKaiinId: number,
+    message: string,
+  ): void {
+    const nowIso = new Date().toISOString();
+    const existing = failedRows.find(
+      (r) => r.denshiKaiinId === denshiKaiinId,
+    );
+    if (existing) {
+      existing.attempts += 1;
+      existing.lastFailedAt = nowIso;
+      existing.lastError = message;
+    } else {
+      failedRows.push({
+        denshiKaiinId,
+        firstFailedAt: nowIso,
+        lastFailedAt: nowIso,
+        attempts: 1,
+        lastError: message,
+      });
+    }
+  }
+
+  private removeFailedRow(
+    failedRows: FailedSyncRow[],
+    denshiKaiinId: number,
+  ): void {
+    const idx = failedRows.findIndex((r) => r.denshiKaiinId === denshiKaiinId);
+    if (idx !== -1) failedRows.splice(idx, 1);
   }
 
   // ── FK 解決マップ（自社 PostgreSQL から一括ロード）────────────────────
@@ -388,6 +512,46 @@ export class DokusyaSyncService implements BatchJob {
   }
 
   /**
+   * 取込対象の抽出条件（キャンペーン除外 AND 取込対象条件 AND 未削除）。
+   * `fetchPage`（差分/全件ページング）と `fetchOne`（再試行キューの id 直指定）
+   * で共通。
+   */
+  private eligibilityWhereClause(): string {
+    // キャンペーン読者（Campagna_flg が立つ）は取込除外（顧客要件 2026-07）。
+    const campaignFilter = `(Campagna_flg IS NULL OR Campagna_flg IN ('', '0'))`;
+    // 取込対象条件（顧客要件）: 収集中(collecting=1) または
+    // treatment=1 かつ クレジットカード払い の会員のみ同期する。
+    // どちらにも該当しない会員は取り込まない。
+    // ※ 電子版 payment_id は cloud の支払方法コードと同一体系（mapper の
+    //   mapShiharai と同じ前提）なので ShiharaiHoho をそのまま使える。
+    const eligibilityFilter =
+      `(collecting = 1 OR (treatment = 1 AND payment_id = ${ShiharaiHoho.CREDIT_CARD}))`;
+    // #57986: Denshiban 側で実削除済み（deleted_at 有）の行は取り込み対象外。
+    // 解約(status=9)の反映は payment_end_ym ベースの中止日算出＋予約行作成で
+    // 完結しており、実削除された行を読み直す必要はない（読んでも既存の Cloud
+    // skip ガードで無害だったが、無駄な行を1件ずつ FK 解決するコストを避ける）。
+    const notDeletedFilter = `deleted_at IS NULL`;
+    return `${campaignFilter} AND ${eligibilityFilter} AND ${notDeletedFilter}`;
+  }
+
+  /**
+   * 再試行キューの1件を id 直指定で取得する（watermark 経路を通らない）。
+   * 抽出条件から外れていれば 0 件 = null（もう再試行対象ではない）。
+   */
+  private async fetchOne(denshiKaiinId: number): Promise<DenshiUserRow | null> {
+    const chg = 'COALESCE(updated_at, created_at)';
+    const rows: DenshiUserRow[] = await this.denshibanDb.withConnection((ds) =>
+      ds.query(
+        `SELECT *, ${chg} AS chg_ts FROM users
+           WHERE id = ? AND ${this.eligibilityWhereClause()}
+           LIMIT 1`,
+        [denshiKaiinId],
+      ),
+    );
+    return rows[0] ?? null;
+  }
+
+  /**
    * 1 ページ分の対象行を取得する（`ORDER BY chg_ts, id` 昇順・`LIMIT PAGE_SIZE`）。
    *
    * - 抽出条件（キャンペーン除外 AND 取込対象条件）は差分/全件とも常に適用。
@@ -404,25 +568,9 @@ export class DokusyaSyncService implements BatchJob {
     fullSync: boolean,
     cursor: PageCursor | null,
   ): Promise<DenshiUserRow[]> {
-    // キャンペーン読者（Campagna_flg が立つ）は取込除外（顧客要件 2026-07）。
-    const campaignFilter = `(Campagna_flg IS NULL OR Campagna_flg IN ('', '0'))`;
-    // 取込対象条件（顧客要件）: 収集中(collecting=1) または
-    // treatment=1 かつ クレジットカード払い の会員のみ同期する。
-    // どちらにも該当しない会員は取り込まない。
-    // ※ 電子版 payment_id は cloud の支払方法コードと同一体系（mapper の
-    //   mapShiharai と同じ前提）なので ShiharaiHoho をそのまま使える。
-    const eligibilityFilter =
-      `(collecting = 1 OR (treatment = 1 AND payment_id = ${ShiharaiHoho.CREDIT_CARD}))`;
-    // #57986: Denshiban 側で実削除済み（deleted_at 有）の行は取り込み対象外。
-    // 解約(status=9)の反映は payment_end_ym ベースの中止日算出＋予約行作成で
-    // 完結しており、実削除された行を読み直す必要はない（読んでも既存の Cloud
-    // skip ガードで無害だったが、無駄な行を1件ずつ FK 解決するコストを避ける）。
-    const notDeletedFilter = `deleted_at IS NULL`;
     const chg = 'COALESCE(updated_at, created_at)';
 
-    const where: string[] = [
-      `${campaignFilter} AND ${eligibilityFilter} AND ${notDeletedFilter}`,
-    ];
+    const where: string[] = [this.eligibilityWhereClause()];
     const params: unknown[] = [];
 
     if (!fullSync) {
@@ -550,6 +698,33 @@ export class DokusyaSyncService implements BatchJob {
         }
       }
 
+      // ── 既存読者だが、本日時点で carry-forward できる履歴行が無い場合 ──
+      // shoki_dokusya_kaishi_date は UPDATE では常に values から除外され
+      // （{@link ownedByCloudFiltered}）、直前の有効履歴行（joho <= 今日）から
+      // carry-forward する設計。読者作成時の初回購読開始日が未来日で、かつ
+      // それが唯一の履歴行だと、本日時点では有効履歴行が1件も無い
+      // （`findBefore` が null）→ carry-forward 元が無く
+      // shoki_dokusya_kaishi_date が NULL のまま INSERT され NOT NULL 制約違反に
+      // なる（2026-08 実データ: denshi_kaiin_id=327402 ほか）。
+      // 今回は直せない（未来日は変更不可のルール）ので更新自体を skip する —
+      // 到来日以降の同期で findBefore が見つかるようになれば自然に反映され、
+      // それより先に到来日が来れば dokusya-apply-due が確定させる。
+      if (existing) {
+        await this.rireki.lockDokusyaRow(m, existing.dokusyaId);
+        const before = await findBefore(m, existing.dokusyaId, johoDate);
+        if (!before) {
+          counts.skipped++;
+          this.logger.warn({
+            event: 'dokusya_sync.skip_no_effective_history',
+            denshi_kaiin_id: denshiKaiinId,
+            dokusya_id: existing.dokusyaId,
+            note:
+              '本日時点で有効な履歴行が無い（履歴が全て未来日）ため今回は更新をskip',
+          });
+          return;
+        }
+      }
+
       // ── 解約（status=9）─────────────────────────────────────────────
       if (status === DENSHI_STATUS_KAIYAKU) {
         await this.handleKaiyaku(
@@ -562,7 +737,6 @@ export class DokusyaSyncService implements BatchJob {
 
       // ── UPDATE（既存）──────────────────────────────────────────────
       if (existing) {
-        await this.rireki.lockDokusyaRow(m, existing.dokusyaId);
         const res = await applyChange(m, {
           mode: 'UPDATE',
           dokusyaId: existing.dokusyaId,
@@ -787,6 +961,13 @@ export class DokusyaSyncService implements BatchJob {
    * - `denshi_shonin_status`: 電子版 `approval` が基本ソースだが、電子版が
    *   0(未承認) のとき cloud 側で承認/否認を確定する運用。既に cloud が
    *   承認(1)/否認(2) 済みなら、電子版の 0 で差し戻さない（顧客回答 2026-07-27）。
+   * - `shoki_dokusya_kaishi_date`: 「初回購読開始日（変更時も保持）」
+   *   （database-design.md）＝一度確定したら二度と動かない列。mapUserToDokusyaFields
+   *   は毎回 activated_at から作り直すため、UPDATE(=初回でない同期) にそのまま
+   *   含めると 電子版側の activated_at 変化（reread 等）に連動して初回値まで
+   *   書き換わってしまう不具合（2026-08）。CREATE 時だけ activated_at を初回値
+   *   として採用し、以降は buildRirekiRow の carry-forward（`{...before}`）に
+   *   任せるため常に除外する。
    */
   private ownedByCloudFiltered(
     values: DokusyaFields,
@@ -795,6 +976,8 @@ export class DokusyaSyncService implements BatchJob {
     const out: DokusyaFields = { ...values };
     // tanka_id は常に cloud 所有 → 除外して既存値を保持。
     delete out.tankaId;
+    // 初回購読開始日は不変 → UPDATE では常に除外し before から carry-forward させる。
+    delete out.shokiDokusyaKaishiDate;
     // denshi_shonin_status: 電子版=未承認(0) かつ cloud=承認/否認済み なら保持。
     const incoming = out.denshiShoninStatus;
     const current = existing.denshiShoninStatus;

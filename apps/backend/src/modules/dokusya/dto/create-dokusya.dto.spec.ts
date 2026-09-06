@@ -647,7 +647,9 @@ describe('CreateDokusyaDto', () => {
     expect(errors.some((e) => e.property === 'seikyu_kaishi_month')).toBe(true);
   });
 
-  // ─── kumiaiin_code (String, optional, max 20) ───────────────────────────
+  // ─── kumiaiin_code (String, optional, max 10・不具合修正2026-08: 20→10) ──
+  // UI(DokusyaFormView.vue の :maxlength="10") / screen-design.md
+  // (ACSMS-SCR-011) と揃える。
   it('should accept kumiaiin_code as empty string', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
@@ -657,13 +659,22 @@ describe('CreateDokusyaDto', () => {
     expect(errors.filter((e) => e.property === 'kumiaiin_code')).toHaveLength(0);
   });
 
-  it('should fail when kumiaiin_code exceeds 20 chars', async () => {
+  it('should fail when kumiaiin_code exceeds 10 chars', async () => {
     const dto = plainToInstance(
       CreateDokusyaDto,
-      buildCreateDokusyaBody({ kumiaiin_code: 'K'.repeat(21) }),
+      buildCreateDokusyaBody({ kumiaiin_code: 'K'.repeat(11) }),
     );
     const errors = await validate(dto);
     expect(errors.some((e) => e.property === 'kumiaiin_code')).toBe(true);
+  });
+
+  it('should pass when kumiaiin_code is exactly 10 chars', async () => {
+    const dto = plainToInstance(
+      CreateDokusyaDto,
+      buildCreateDokusyaBody({ kumiaiin_code: 'K'.repeat(10) }),
+    );
+    const errors = await validate(dto);
+    expect(errors.filter((e) => e.property === 'kumiaiin_code')).toHaveLength(0);
   });
 
   // ─── biko (String, optional, max 500) ───────────────────────────────────

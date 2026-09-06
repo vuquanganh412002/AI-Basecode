@@ -86,6 +86,7 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
       update: jest.fn(),
       approve: jest.fn(),
       reject: jest.fn(),
+      registerTanka: jest.fn(),
       getHistory: jest.fn(),
     };
     currentSession = buildChuokaiSession({
@@ -710,6 +711,113 @@ describe('DokusyaController — SCR-011 (HTTP: detail/create/update/approve/reje
     it('should return 500 INTERNAL_SERVER_ERROR when service throws unexpected', async () => {
       service.reject.mockRejectedValue(new Error('DB exploded'));
       const res = await http().put(apiUrl('dokusya/100/reject')).expect(500);
+      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // ACSMS-API-011-007 — PUT /api/v1/dokusya/:dokusya_id/register-tanka（2026-08 追加）
+  // ════════════════════════════════════════════════════════════════════════
+  describe('PUT /api/v1/dokusya/:dokusya_id/register-tanka', () => {
+    it('should return 200 with data + message="登録しました。" on happy path', async () => {
+      service.registerTanka.mockResolvedValue({
+        data: buildDokusyaDetailResponse({
+          dokusya_id: 100, denshi_shonin_status: null, tanka_id: 5,
+        }),
+        message: '登録しました。',
+      });
+
+      const res = await http()
+        .put(apiUrl('dokusya/100/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(200);
+      expect(res.body.data.tanka_id).toBe(5);
+      expect(res.body.data.denshi_shonin_status).toBeNull();
+      expect(res.body.message).toBe('登録しました。');
+    });
+
+    it('should call service.registerTanka with parsed numeric dokusya_id + body', async () => {
+      service.registerTanka.mockResolvedValue({
+        data: buildDokusyaDetailResponse({ dokusya_id: 42, tanka_id: 7 }),
+        message: '登録しました。',
+      });
+      await http()
+        .put(apiUrl('dokusya/42/register-tanka'))
+        .send({ tanka_id: 7 })
+        .expect(200);
+      expect(service.registerTanka).toHaveBeenCalledWith(
+        42,
+        expect.anything(),
+        expect.anything(),
+        { tanka_id: 7 },
+      );
+    });
+
+    it('should return 400 VALIDATION_ERROR when tanka_id is missing', async () => {
+      await http().put(apiUrl('dokusya/100/register-tanka')).send({}).expect(400);
+      expect(service.registerTanka).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 BAD_REQUEST when dokusya_id is non-numeric', async () => {
+      await http()
+        .put(apiUrl('dokusya/abc/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(400);
+      expect(service.registerTanka).not.toHaveBeenCalled();
+    });
+
+    it('should return 400 INVALID_STATUS when service throws INVALID_STATUS', async () => {
+      service.registerTanka.mockRejectedValue(
+        new HttpException(
+          {
+            code: 'INVALID_STATUS',
+            error_code: 'INVALID_STATUS',
+            message: '対象外の読者です。',
+          },
+          HttpStatus.BAD_REQUEST,
+        ),
+      );
+
+      const res = await http()
+        .put(apiUrl('dokusya/100/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(400);
+      expect(res.body.error_code).toBe('INVALID_STATUS');
+    });
+
+    it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+      currentSession = null;
+      const res = await http()
+        .put(apiUrl('dokusya/100/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when dokusya.update permission is missing', async () => {
+      permissionsGuardValue = false;
+      const res = await http()
+        .put(apiUrl('dokusya/100/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 404 NOT_FOUND when service throws NotFoundException', async () => {
+      service.registerTanka.mockRejectedValue(new NotFoundException('購読者'));
+      const res = await http()
+        .put(apiUrl('dokusya/999/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(404);
+      expect(res.body.error_code).toBe('NOT_FOUND');
+    });
+
+    it('should return 500 INTERNAL_SERVER_ERROR when service throws unexpected', async () => {
+      service.registerTanka.mockRejectedValue(new Error('DB exploded'));
+      const res = await http()
+        .put(apiUrl('dokusya/100/register-tanka'))
+        .send({ tanka_id: 5 })
+        .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
   });

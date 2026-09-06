@@ -297,7 +297,7 @@ export interface DokusyaListItem {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
-  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）. */
+  /** 配送先TEL1 — haitatsu_renrakusaki_1（空文字許容）. */
   haitatsu_renrakusaki_1: string;
   /** 配達先氏名 — haitatsu_shimei_sei + ' ' + haitatsu_shimei_mei (concat, trimmed). */
   haitatsu_full_name: string;
@@ -402,9 +402,9 @@ export function toDokusyaListItem(
  * Excel エクスポートの標準15列日本語ヘッダ行。ACSMS-SCR-014 検索結果テーブルの列レイアウトを反映
  * （顧客要件2026-06）:
  *   - ID (dokusya_id) を先頭列に追加
- *   - 支店 / 連絡先２ 列を削除
+ *   - 支店 / TEL2 列を削除
  *   - 手続種類 / 購読種別 を購読者名の後に追加
- *   - 配達先氏名 を連絡先１の後に追加
+ *   - 配達先氏名 をTEL1の後に追加
  *   - 支払方法 を販売店名の後に追加
  * かな氏名 は検索専用（表示/export 列なし）。単一の真実源として spec が assert できるよう export。
  */
@@ -415,7 +415,7 @@ export const DOKUSYA_EXPORT_HEADERS: readonly string[] = [
   '購読者名',
   '手続種類',
   '購読種別',
-  '連絡先１',
+  'TEL1',
   '配達先氏名',
   '配達先郵便',
   '配達先住所',

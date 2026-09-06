@@ -70,6 +70,7 @@ describe('KozaFurikaeController (HTTP)', () => {
       getInitialData: jest.fn(),
       previewData: jest.fn(),
       exportCsv: jest.fn(),
+      exportExcel: jest.fn(),
     };
     currentSession = buildChuokaiSession({ ja_id: 1, permissions: ['koza_furikae.export'] });
     currentPermissions = ['koza_furikae.export'];
@@ -314,5 +315,80 @@ describe('KozaFurikaeController (HTTP)', () => {
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
 
+  });
+
+  // ─── POST /api/v1/koza-furikae/export-excel（顧客要件 2026-08-26）───────
+  describe('POST /api/v1/koza-furikae/export-excel', () => {
+    it('should return 200 with an xlsx attachment carrying the ASCII filename + RFC5987 filename* when データ exists', async () => {
+      service.exportExcel.mockResolvedValue({
+        buffer: Buffer.from('PK...'),
+        filename: '口座振替データ_2026年05月27日.xlsx',
+        asciiFilename: '________2026_05_27_.xlsx',
+        recordCount: 2,
+      });
+
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery())
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      const cd = res.headers['content-disposition'];
+      expect(cd).toContain('filename="________2026_05_27_.xlsx"');
+      expect(cd).toContain("filename*=UTF-8''");
+      expect(cd).toContain(encodeURIComponent('口座振替データ_2026年05月27日.xlsx'));
+    });
+
+    it('should return 400 VALIDATION_ERROR when target_month is missing', async () => {
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery({ target_month: undefined }))
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+      expect(res.body.errors.some((e: any) => e.field === 'target_month')).toBe(true);
+    });
+
+    it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+      currentSession = null;
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery())
+        .expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when user lacks koza_furikae.export', async () => {
+      currentPermissions = [];
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery())
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 404 NO_TARGET_DATA when the service reports no matching データ', async () => {
+      service.exportExcel.mockRejectedValue(
+        new HttpException(
+          { code: 'NO_TARGET_DATA', error_code: 'NO_TARGET_DATA', message: '対象データがありません。' },
+          HttpStatus.NOT_FOUND,
+        ),
+      );
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery())
+        .expect(404);
+      expect(res.body.error_code).toBe('NO_TARGET_DATA');
+    });
+
+    it('should return 500 INTERNAL_SERVER_ERROR when the service throws an unexpected error', async () => {
+      service.exportExcel.mockRejectedValue(new Error('boom'));
+      const res = await http()
+        .post(apiUrl('koza-furikae/export-excel'))
+        .send(buildExportKozaFurikaeQuery())
+        .expect(500);
+      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
   });
 });

@@ -13,6 +13,7 @@
 // Each it() maps back to a clause in docs/design/ACSMS-SCR-020/ACSMS-SCR-020-api.md.
 
 import * as iconv from 'iconv-lite';
+import * as ExcelJS from 'exceljs';
 
 import { attachLogExport } from '@test/utils/audit-log-mock';
 import { KozaFurikaeService } from '@/modules/koza-furikae/koza-furikae.service';
@@ -571,6 +572,150 @@ describe('KozaFurikaeService', () => {
         .filter((r) => r.length > 0 && r[0] === '2');
       expect(dataRecords[0].slice(80, 90)).toBe('0000005500'); // 編集
       expect(dataRecords[1].slice(80, 90)).toBe('0000004900'); // DB金額
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ACSMS-API-020-004 — POST /api/v1/koza-furikae/export-excel（顧客要件 2026-08-26）
+  // レポートプレビュー（預金者名/引落支店/口座番号/金額）の内容を Excel で出力する。
+  // 全銀 CSV（exportCsv）とは独立した読み取り専用の出力で、t_koza_furikae への
+  // upsert は行わない（トランザクションを開かない）。
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('exportExcel', () => {
+    it('should return a Buffer + the archived filename (口座振替データ_YYYY年MM月DD日.xlsx) + ASCII fallback + record count when データ exists', async () => {
+      // COVERS: 4.9 ダウンロード名 = FileArchiveService が返す displayName+拡張子。
+      reportArchive.archive.mockResolvedValue({
+        key: 'koza-furikae/JA001/2026/口座振替データ_JA001_2026年05月27日_20260522103000.xlsx',
+        filename: '口座振替データ_2026年05月27日.xlsx',
+        fileDownloadId: 7,
+      });
+
+      const result = await service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          buffer: expect.any(Buffer),
+          filename: '口座振替データ_2026年05月27日.xlsx',
+          // ASCII別名は displayName（拡張子なし）から生成される（exportCsv と同ロジック）。
+          asciiFilename: '________2026_05_27_',
+          recordCount: 2,
+        }),
+      );
+    });
+
+    it('should build an Excel sheet with header 預金者名/引落支店/口座番号/金額 + data rows + a 合計 total row', async () => {
+      const result = await service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      const headerRow = ws.getRow(1).values as unknown[];
+      expect(headerRow.slice(1, 5)).toEqual(['預金者名', '引落支店', '口座番号', '金額']);
+
+      const dataRow1 = ws.getRow(2).values as unknown[];
+      expect(dataRow1.slice(1, 5)).toEqual(['ﾔﾏﾀﾞ ﾀﾛｳ', '001 ﾎﾝﾃﾝ', '1234567', 4900]);
+      // 2行目も hikiotoshi_koza_meigi（既定値）優先で 'ﾔﾏﾀﾞ ﾀﾛｳ' になる（mapper と同じ優先順）。
+      const dataRow2 = ws.getRow(3).values as unknown[];
+      expect(dataRow2.slice(1, 5)).toEqual(['ﾔﾏﾀﾞ ﾀﾛｳ', '001 ﾎﾝﾃﾝ', '1234567', 4900]);
+
+      const totalRow = ws.getRow(4).values as unknown[];
+      expect(totalRow.slice(1, 5)).toEqual(['合計', '', '', 9800]);
+    });
+
+    it('should archive the Excel via FileArchiveService with category koza-furikae, extension .xlsx and NO rootPrefix', async () => {
+      await service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      expect(reportArchive.archive).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'koza-furikae',
+          rootPrefix: '',
+          year: '2026',
+          baseName: '口座振替データ_JA001_2026年05月27日',
+          displayName: '口座振替データ_2026年05月27日',
+          extension: '.xlsx',
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          recordCount: 2,
+        }),
+      );
+    });
+
+    it('should NOT open a DB transaction / upsert t_koza_furikae (read-only report export)', async () => {
+      await service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should record the 操作ログ with log_type=4 (FILE_OPERATION), operation CREATE, WITHOUT a transaction manager', async () => {
+      await service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req);
+
+      expect(auditLog.logOperation).toHaveBeenCalledTimes(1);
+      const [params, manager] = auditLog.logOperation.mock.calls[0];
+      expect(params.logType).toBe(4);
+      expect(params.operation).toBe('CREATE');
+      expect(params.targetTable).toBe('t_file_download');
+      expect(manager).toBeUndefined();
+    });
+
+    it('should throw NO_TARGET_DATA and NOT archive when the aggregation returns 0 rows', async () => {
+      dataSource.query.mockResolvedValue([]);
+
+      await expect(
+        service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req),
+      ).rejects.toMatchObject({ response: { error_code: 'NO_TARGET_DATA' } });
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+    });
+
+    it('should throw INACTIVE_TANKA_REFERENCED and NOT archive when a 購読者 references a 失効単価', async () => {
+      dataSource.query.mockImplementation((sql: string) =>
+        /active_flg\s*=\s*FALSE/i.test(sql)
+          ? Promise.resolve([
+              {
+                dokusya_id: 1,
+                koza_meigi: 'ﾔﾏﾀﾞ ﾀﾛｳ',
+                tanka_code: 'T001',
+                tanka_name: '旧購読料',
+                total_count: '1',
+              },
+            ])
+          : Promise.resolve([buildKozaFurikaeAggRow({ dokusya_id: 1 })]),
+      );
+
+      await expect(
+        service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req),
+      ).rejects.toMatchObject({
+        response: { error_code: 'INACTIVE_TANKA_REFERENCED', total: 1 },
+      });
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+    });
+
+    it('should apply the edited 金額 from rows into the Excel, matched by dokusya_id', async () => {
+      const body = buildExportKozaFurikaeQuery({
+        rows: [
+          { dokusya_id: 1, furikae_kingaku: 8000 }, // 編集
+          { dokusya_id: 2, furikae_kingaku: 4900 }, // 据え置き
+        ],
+      });
+
+      const result = await service.exportExcel(body, kSession(), req);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(result.buffer as never);
+      const ws = wb.worksheets[0];
+      expect((ws.getRow(2).values as unknown[])[4]).toBe(8000);
+      expect((ws.getRow(3).values as unknown[])[4]).toBe(4900);
+      expect((ws.getRow(4).values as unknown[])[4]).toBe(12900);
+    });
+
+    it('should emit an error audit log (log_type=3) when the archive fails, and rethrow', async () => {
+      reportArchive.archive.mockRejectedValue(new Error('s3-down'));
+
+      await expect(
+        service.exportExcel(buildExportKozaFurikaeQuery(), kSession(), req),
+      ).rejects.toThrow();
+
+      expect(auditLog.logError).toHaveBeenCalledTimes(1);
+      const lastArg = auditLog.logError.mock.calls[0].at(-1);
+      expect(lastArg).toBeInstanceOf(Error);
     });
   });
 });

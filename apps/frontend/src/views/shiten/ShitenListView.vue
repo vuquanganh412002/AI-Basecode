@@ -152,9 +152,12 @@ async function fetchList(): Promise<void> {
 }
 
 async function loadKanriShitenOptions(): Promise<void> {
-  // 管理支店 dropdown（ACSMS-API-COMMON-004）— 呼び出し元の JA にスコープ。
-  // NICHINO_* は ja_id = null だが shiten.view を持たず（router guard が拒否）
-  // この view に到達しない。
+  // 管理支店 dropdown（ACSMS-API-COMMON-004）— 単一 JA にスコープする API
+  // （ja_id 必須）。NICHINO_ADMIN は顧客CR 2026-08-24 で shiten.view を正式
+  // 付与され全JA横断でこの一覧に到達できるが、session.ja_id が null で
+  // どの JA にも属さないため、単一 JA スコープの本 dropdown では絞り込めない
+  // （管理支店フィルタは空のまま — 他4フィルタで代替）。NICHINO_STAFF は
+  // 依然 shiten.view を持たず router guard が拒否する。
   const jaId = authStore.user?.ja_id;
   if (jaId === null || jaId === undefined) {
     kanriShitenOptions.value = [];

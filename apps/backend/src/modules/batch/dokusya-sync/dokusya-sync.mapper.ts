@@ -199,8 +199,41 @@ export function mapTetsuzuki(status: unknown): number {
     : TetsuzukiShurui.SHINKI;
 }
 
-/** approval(0未承認/1承認済/2非承認/9対象外) → denshi_shonin_status（9→NULL）。 */
-function mapShoninStatus(approval: unknown): number | null {
+/**
+ * denshi_shonin_status（電子版承認ステータス）。承認/否認ワークフロー自体が
+ * 存在しないカテゴリは、電子版の approval 値を信用せず常に null にする
+ * （不具合修正2026-08: 従来は approval=9(対象外) 頼みで判定していたが、実データで
+ * これらのカテゴリでも approval が 0/1/2 のまま同期されてくる行があり、
+ * SCR-011 の承認待ち(0)ワークフローに誤って乗ってしまっていた）。
+ *
+ * 優先順位（上から判定・screen-design.md ACSMS-SCR-011 #249,#316 の read-only
+ * 対象と対応）:
+ *   1. 電子版(2) かつ クレジットカード(6)                  → null（編集・削除不可の read-only 対象）
+ *   2. 併読(3)                                             → null（電子版連携で完結・cloud は参照のみ）
+ *   3. 電子版(2) かつ 無料会員(denshi_dokusya_shubetsu=0)  → null（無料は承認不要）
+ *   4. それ以外（電子版・有料・クレカ以外＝承認ワークフロー対象）→ approval(0/1/2/9)を通常どおりマップ
+ */
+function mapShoninStatus(
+  shubetsu: number,
+  shiharaiHoho: number,
+  denshiDokusyaShubetsu: number | null,
+  approval: unknown,
+): number | null {
+  if (
+    shubetsu === DokusyaShubetsu.DIGITAL &&
+    shiharaiHoho === ShiharaiHoho.CREDIT_CARD
+  ) {
+    return null;
+  }
+  if (shubetsu === DokusyaShubetsu.BOTH) {
+    return null;
+  }
+  if (
+    shubetsu === DokusyaShubetsu.DIGITAL &&
+    denshiDokusyaShubetsu === DENSHI_DOKUSYA_SHUBETSU_MURYO
+  ) {
+    return null;
+  }
   const n = numOrNull(approval);
   switch (n) {
     case 0:
@@ -210,7 +243,7 @@ function mapShoninStatus(approval: unknown): number | null {
     case 2:
       return DenshiShoninStatus.REJECTED;
     default:
-      return null; // 9:対象外（社内/クレカ/無料）・不明
+      return null; // 9:対象外・不明
   }
 }
 
@@ -241,14 +274,6 @@ function mapCsvCodes(raw: unknown, table: Record<string, string>): string {
     .filter((c) => c !== '' && table[c] !== undefined)
     .map((c) => table[c])
     .join(',');
-}
-
-/** remarks1〜5 を改行連結（空はスキップ）。 */
-function joinRemarks(u: DenshiUserRow): string {
-  return [u.remarks1, u.remarks2, u.remarks3, u.remarks4, u.remarks5]
-    .map((r) => str(r).trim())
-    .filter((r) => r !== '')
-    .join('\n');
 }
 
 // ─── メイン変換 ──────────────────────────────────────────────────────
@@ -282,6 +307,10 @@ export function mapUserToDokusyaFields(
   const dokusyasoBunrui = mapCsvCodes(u.profession, PROFESSION_TO_BUNRUI);
   const nogyosyaBunrui = mapCsvCodes(u.products, PRODUCTS_TO_BUNRUI);
 
+  // mapShoninStatus の優先判定（クレカ / 併読 / 無料）に使うので先に確定させる。
+  const denshiDokusyaShubetsu = mapDenshiSubtype(u.member_type);
+  const shiharaiHoho = mapShiharai(u.payment_id);
+
   // 配達先住所: 電子版(same=TRUE)は購読者住所、併読(same=FALSE)は paper_*。
   const haitatsu = haitatsuSameFlg
     ? {
@@ -310,7 +339,7 @@ export function mapUserToDokusyaFields(
     // ─ 種別 ─
     dokusyaShubetsu: shubetsu,
     tetsuzukiShurui: mapTetsuzuki(u.status),
-    denshiDokusyaShubetsu: mapDenshiSubtype(u.member_type),
+    denshiDokusyaShubetsu,
     // ─ 氏名 ─
     shimeiSei: str(u.first_name),
     shimeiMei: str(u.last_name),
@@ -347,7 +376,7 @@ export function mapUserToDokusyaFields(
     hanbaitenId: fk.hanbaitenId, // 併読のみ実店/電子版単独はダミー（service 解決）
     tankaId: null, // 承認時に画面登録
     yubinKubun: YUBIN_KUBUN_NASHI,
-    shiharaiHoho: mapShiharai(u.payment_id),
+    shiharaiHoho,
     dokusyaryoShiharaiCycle: numOrNull(u.payment_cycle),
     bankBranchCode: '',
     bankBranchName: '',
@@ -392,8 +421,15 @@ export function mapUserToDokusyaFields(
     // （このフィールドを values に含めないことで通常行は前回値を carry-forward する）。
     seikyuKaishiMonth: str(u.payment_start_ym),
     // ─ その他 ─
-    biko: joinRemarks(u),
-    denshiShoninStatus: mapShoninStatus(u.approval),
+    // biko は電子版 remarks1〜5 とはマッピングしない（cloud 専有列・顧客要件
+    // 2026-08-26）。DokusyaFields には含めないことで、CREATE 時は列既定値
+    // （空文字）、UPDATE 時は前回値から carry-forward される。
+    denshiShoninStatus: mapShoninStatus(
+      shubetsu,
+      shiharaiHoho,
+      denshiDokusyaShubetsu,
+      u.approval,
+    ),
     honshiKodokuFlg: numOrNull(u.subscribe_flg) === 1,
   };
 }

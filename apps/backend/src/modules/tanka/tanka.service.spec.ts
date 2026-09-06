@@ -779,7 +779,26 @@ describe('TankaService — SCR-002 (list / delete)', () => {
       const target = buildTanka({ tankaId: 5, jaId: 1 });
       repo.findOne.mockResolvedValue(target);
       dataSource.query.mockImplementation(async (sql: string) => {
-        if (/t_dokusya/i.test(sql)) return [{ count: '1' }];
+        if (/FROM t_dokusya\b/i.test(sql)) return [{ count: '1' }];
+        return [{ count: '0' }];
+      });
+
+      await expect(
+        service.remove(5, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException when t_dokusya_rireki references the tanka (履歴テーブル・不具合修正2026-08)', async () => {
+      // COVERS: §4.4 関連データチェック — t_dokusya_rireki.tanka_id FK。
+      // deleted_at 列が無い append-only テーブルなので hasDeletedAt:false
+      // 経路（`AND deleted_at IS NULL` を付けない SQL）を通ることも兼ねて確認。
+      const target = buildTanka({ tankaId: 5, jaId: 1 });
+      repo.findOne.mockResolvedValue(target);
+      dataSource.query.mockImplementation(async (sql: string) => {
+        if (/FROM t_dokusya_rireki\b/i.test(sql)) {
+          expect(sql).not.toMatch(/deleted_at/i);
+          return [{ count: '1' }];
+        }
         return [{ count: '0' }];
       });
 

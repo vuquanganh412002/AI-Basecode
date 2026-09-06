@@ -33,6 +33,7 @@ import {
 vi.mock('@/api/report/report', () => ({
   previewZougenHanbaiten: vi.fn(),
   exportZougenHanbaiten: vi.fn(),
+  exportZougenHanbaitenExcel: vi.fn(),
 }));
 vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   getHanbaitenDropdown: vi.fn(),
@@ -108,16 +109,22 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 
 const previewBtn = () => '[data-test="preview-btn"]';
 const exportBtn = () => '[data-test="export-btn"]';
+const exportExcelBtn = () => '[data-test="export-excel-btn"]';
 
 beforeEach(async () => {
   vi.clearAllMocks();
-  const { previewZougenHanbaiten, exportZougenHanbaiten } = await import(
-    '@/api/report/report'
-  );
+  const { previewZougenHanbaiten, exportZougenHanbaiten, exportZougenHanbaitenExcel } =
+    await import('@/api/report/report');
   vi.mocked(previewZougenHanbaiten).mockResolvedValue(buildZougenPreviewResponse());
   vi.mocked(exportZougenHanbaiten).mockResolvedValue({
     blob: new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
     filename: '増減連絡票_JA001_2026年05月01日.pdf',
+  });
+  vi.mocked(exportZougenHanbaitenExcel).mockResolvedValue({
+    blob: new Blob(['PK'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    filename: '増減連絡票_JA001_2026年05月01日.xlsx',
   });
   const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
   vi.mocked(getHanbaitenDropdown).mockResolvedValue(buildHanbaitenDropdownResponse());
@@ -205,6 +212,13 @@ describe('ZougenHanbaitenReportView — 権限', () => {
   it('should disable the 電子帳票作成 button when the user lacks report.export_zougen_hanbaiten', async () => {
     const { wrapper } = await renderView({ user: buildZougenNichinoUser() });
     const btn = wrapper.find(exportBtn());
+    expect(btn.exists()).toBe(true);
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('should disable the Excel出力 button when the user lacks report.export_zougen_hanbaiten', async () => {
+    const { wrapper } = await renderView({ user: buildZougenNichinoUser() });
+    const btn = wrapper.find(exportExcelBtn());
     expect(btn.exists()).toBe(true);
     expect((btn.element as HTMLButtonElement).disabled).toBe(true);
   });
@@ -394,6 +408,83 @@ describe('ZougenHanbaitenReportView — 電子帳票作成', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
+// 3b. Excel出力（顧客要件 2026-08-26 — レポートプレビュー内容をExcelで出力）
+// ───────────────────────────────────────────────────────────────────────
+describe('ZougenHanbaitenReportView — Excel出力', () => {
+  /** プレビューでデータを取得して Excel出力 を活性化する。 */
+  async function previewWithData(wrapper: any): Promise<void> {
+    wrapper.vm.formState.tekiyo_date = '2026-05-01';
+    wrapper.vm.formState.hanbaiten_id = [200];
+    wrapper.vm.formState.kanri_shiten_id = [30];
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+  }
+
+  it('should render the Excel出力 button when mounted', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find(exportExcelBtn()).exists()).toBe(true);
+  });
+
+  it('should disable Excel出力 on initial mount (no preview data yet) and NOT call exportZougenHanbaitenExcel on click', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaitenExcel } = await import('@/api/report/report');
+
+    const btn = wrapper.find(exportExcelBtn());
+    expect((btn.element as HTMLButtonElement).disabled).toBe(true);
+
+    await btn.trigger('click');
+    await flushPromises();
+    expect(exportZougenHanbaitenExcel).not.toHaveBeenCalled();
+  });
+
+  it('should call exportZougenHanbaitenExcel and create a Blob object URL when Excel出力 is clicked after preview returns data', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaitenExcel, exportZougenHanbaiten } = await import(
+      '@/api/report/report'
+    );
+    await previewWithData(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportZougenHanbaitenExcel).toHaveBeenCalledTimes(1);
+    expect(createObjectURL).toHaveBeenCalled();
+    // PDF出力（電子帳票作成）は呼ばれない — 別の読み取り専用出力。
+    expect(exportZougenHanbaiten).not.toHaveBeenCalled();
+  });
+
+  it('should show 対象のデータが存在しません。 and NOT download when Excel出力 returns an application/json (no-data) blob', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaitenExcel } = await import('@/api/report/report');
+    await previewWithData(wrapper);
+    vi.mocked(exportZougenHanbaitenExcel).mockResolvedValueOnce({
+      blob: new Blob(['{}'], { type: 'application/json' }),
+      filename: null,
+    });
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="no-data-message"]').exists()).toBe(true);
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('should still call exportZougenHanbaitenExcel when it rejects with 500 (interceptor handles the toast)', async () => {
+    const { wrapper } = await renderView();
+    const { exportZougenHanbaitenExcel } = await import('@/api/report/report');
+    await previewWithData(wrapper);
+    vi.mocked(exportZougenHanbaitenExcel).mockRejectedValueOnce({
+      error_code: 'INTERNAL_SERVER_ERROR',
+    });
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportZougenHanbaitenExcel).toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
 // 4b. 発行日時（プレビュー押下時刻・JST。条件ラベル＋帳票フッタ）
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenHanbaitenReportView — 発行日時', () => {
@@ -442,7 +533,7 @@ describe('ZougenHanbaitenReportView — 発行日時', () => {
 });
 
 // ───────────────────────────────────────────────────────────────────────
-// 5. ページ送り（文書ページ / 15レコード・名簿と同方針）
+// 5. ページ送り（文書ページ / 20レコード・名簿と同方針）
 // ───────────────────────────────────────────────────────────────────────
 describe('ZougenHanbaitenReportView — ページ送り', () => {
   it('sends page/per_page on preview and re-fetches the chosen page', async () => {
@@ -450,7 +541,7 @@ describe('ZougenHanbaitenReportView — ページ送り', () => {
     const { previewZougenHanbaiten } = await import('@/api/report/report');
     vi.mocked(previewZougenHanbaiten).mockResolvedValueOnce(
       buildZougenPreviewResponse({
-        page_no: 1, per_page: 15, total_pages: 2, total_rows: 20, is_last_page: false,
+        page_no: 1, per_page: 20, total_pages: 2, total_rows: 30, is_last_page: false,
       }),
     );
 
@@ -462,19 +553,19 @@ describe('ZougenHanbaitenReportView — ページ送り', () => {
 
     expect(vi.mocked(previewZougenHanbaiten).mock.calls[0]?.[0]).toMatchObject({
       page: 1,
-      per_page: 15,
+      per_page: 20,
     });
     expect(wrapper.find('[data-test="zougen-pager"]').exists()).toBe(true);
 
     vi.mocked(previewZougenHanbaiten).mockResolvedValueOnce(
       buildZougenPreviewResponse({
-        page_no: 2, per_page: 15, total_pages: 2, total_rows: 20, is_last_page: true,
+        page_no: 2, per_page: 20, total_pages: 2, total_rows: 30, is_last_page: true,
       }),
     );
     await wrapper.find('.ant-pagination-item-2').trigger('click');
     await flushPromises();
 
     const lastArg = vi.mocked(previewZougenHanbaiten).mock.calls.at(-1)?.[0];
-    expect(lastArg).toMatchObject({ page: 2, per_page: 15 });
+    expect(lastArg).toMatchObject({ page: 2, per_page: 20 });
   });
 });

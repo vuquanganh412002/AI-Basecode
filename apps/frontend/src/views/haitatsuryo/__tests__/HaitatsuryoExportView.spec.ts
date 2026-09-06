@@ -103,6 +103,11 @@ async function renderView(opts: RenderOptions = {}): Promise<{
                   { value: 1, label: 'JA', label_short: 'JA' },
                   { value: 2, label: '販売店', label_short: '販売店' },
                 ],
+                ITAKU_KUBUN: [
+                  { value: 1, label: '振込', label_short: '振込' },
+                  { value: 2, label: '日農委託', label_short: '日農委託' },
+                  { value: 9, label: 'その他', label_short: 'その他' },
+                ],
               },
             },
           },
@@ -308,6 +313,31 @@ describe('HaitatsuryoExportView — 検索・集計', () => {
     // in the 配達手数料支払サイクル form label.
     const headers = wrapper.findAll('thead th').map((th) => th.text());
     expect(headers).toContain('手数料');
+  });
+
+  it('should place 委託区分 between 対象月/販売店コード and 単価 between 当月部数/当月金額 (顧客要件 2026-08-26)', async () => {
+    const { wrapper } = await renderView();
+    (wrapper.vm as any).formState.target_month = '2026-04-01';
+
+    await wrapper.find(previewBtn()).trigger('click');
+    await flushPromises();
+
+    const headers = wrapper.findAll('thead th').map((th) => th.text());
+    const targetMonthIdx = headers.indexOf('対象月');
+    const itakuKubunIdx = headers.indexOf('委託区分');
+    const hanbaitenCodeIdx = headers.indexOf('販売店コード');
+    const totalBusuIdx = headers.indexOf('当月部数');
+    const tankaIdx = headers.indexOf('単価');
+    const totalKingakuIdx = headers.indexOf('当月金額');
+    expect(itakuKubunIdx).toBeGreaterThan(targetMonthIdx);
+    expect(itakuKubunIdx).toBeLessThan(hanbaitenCodeIdx);
+    expect(tankaIdx).toBeGreaterThan(totalBusuIdx);
+    expect(tankaIdx).toBeLessThan(totalKingakuIdx);
+
+    // 1行目（東京中央販売店・itaku_kubun=1・tesuryo=4900）のラベル/金額表示。
+    const text = wrapper.text();
+    expect(text).toContain('振込');
+    expect(text).toContain('¥4,900');
   });
 
   it('should render the 販売店 aggregation row (code + name + busu) when previewHaitatsuryo resolves data', async () => {

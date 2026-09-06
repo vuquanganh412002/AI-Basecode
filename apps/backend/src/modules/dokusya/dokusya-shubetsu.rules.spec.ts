@@ -279,3 +279,4 @@ describe('dokusya-shubetsu.rules — collectDigitalNewKaishiDateViolation', () =
     ).toHaveLength(0);
   });
 });
+

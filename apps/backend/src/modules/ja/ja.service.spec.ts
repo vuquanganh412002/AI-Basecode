@@ -982,6 +982,37 @@ describe('JaService', () => {
       });
     });
 
+    it('should throw ConflictException when t_oshirase has related rows (不具合修正2026-08)', async () => {
+      // COVERS: §4.4 — お知らせ(ja_id 参照)。実DBにFK制約
+      // (FK_t_oshirase_m_ja)は存在するが従来ガード対象から漏れていた。
+      dataSource.query = jest.fn(async (sql: string) => {
+        if (/t_oshirase/i.test(sql)) return [{ count: '1' }];
+        return [{ count: '0' }];
+      });
+
+      await expect(service.remove(5, buildSession(), baseReq)).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'CONFLICT' }),
+      });
+    });
+
+    it('should throw ConflictException when t_dokusya_rireki has related rows (履歴テーブル・不具合修正2026-08)', async () => {
+      // COVERS: §4.4 — 購読者履歴(ja_id 参照、実DBにFK制約
+      // FK_t_dokusya_rireki_m_ja あり、従来ガード対象から漏れていた)。
+      // deleted_at 列が無い append-only テーブルなので hasDeletedAt:false
+      // 経路も兼ねて確認。
+      dataSource.query = jest.fn(async (sql: string) => {
+        if (/t_dokusya_rireki/i.test(sql)) {
+          expect(sql).not.toMatch(/deleted_at/i);
+          return [{ count: '1' }];
+        }
+        return [{ count: '0' }];
+      });
+
+      await expect(service.remove(5, buildSession(), baseReq)).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'CONFLICT' }),
+      });
+    });
+
     it('should wrap soft-delete + audit log in single transaction when delete succeeds', async () => {
       // COVERS: transaction boundary — 4.5 UPDATE + 4.6 audit log share one tx
       await service.remove(5, buildSession(), baseReq);

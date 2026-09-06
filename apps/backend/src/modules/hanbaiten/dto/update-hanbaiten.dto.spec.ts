@@ -74,10 +74,22 @@ describe('UpdateHanbaitenDto', () => {
     });
   });
 
-  describe('todofuken_code (optional, length 2)', () => {
+  // 顧客CR 2026-08-24 — 都道府県が JA 追従の read-only から自由選択になったため
+  // 必須項目化（m_ja / m_kanri_shiten と同じ規約）。
+  describe('todofuken_code (required, length 2)', () => {
     it('should accept when todofuken_code is exactly 2 chars', async () => {
       const errs = await check({ ...VALID, todofuken_code: '13' });
       expect(errs.some((e) => e.property === 'todofuken_code')).toBe(false);
+    });
+
+    it('should reject when todofuken_code is omitted', async () => {
+      const { todofuken_code: _drop, ...without } = VALID;
+      expect((await check(without)).some((e) => e.property === 'todofuken_code')).toBe(true);
+    });
+
+    it('should reject when todofuken_code is empty string', async () => {
+      const errs = await check({ ...VALID, todofuken_code: '' });
+      expect(errs.some((e) => e.property === 'todofuken_code')).toBe(true);
     });
 
     it('should reject when todofuken_code is 1 char', async () => {

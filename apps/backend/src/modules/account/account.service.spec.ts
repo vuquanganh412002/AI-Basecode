@@ -19,6 +19,7 @@ import {
   ValidationException,
 } from '@/common/exceptions/common.exceptions';
 import { AccountService } from '@/modules/account/account.service';
+import { QueryFailedError } from 'typeorm';
 import {
   buildAccountEntity as buildAccountFormEntity,
   buildCreateAccountBody,
@@ -421,6 +422,81 @@ describe('AccountService — SCR-024 (search + delete)', () => {
         ([sql]: any[]) => typeof sql === 'string' && /kanri_?shiten_?id/i.test(sql),
       );
       expect(ksCall).toBeDefined();
+    });
+
+    it('should filter todofuken_code with exact match (trimmed) when todofuken_code is provided', async () => {
+      // COVERS: §4.5 — a.todofuken_code = :todofuken_code
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { todofuken_code: ' 13 ', page: 1, per_page: 20 } as any,
+        adminSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /todofuken_?code/i.test(sql),
+      );
+      expect(call).toBeDefined();
+      expect(call[1]).toEqual({ todofuken_code: '13' });
+    });
+
+    it('should NOT filter todofuken_code when it is blank/whitespace-only', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { todofuken_code: '   ', page: 1, per_page: 20 } as any,
+        adminSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /todofuken_?code/i.test(sql),
+      );
+      expect(call).toBeUndefined();
+    });
+
+    it('should filter shiten_id with exact match when shiten_id is provided', async () => {
+      // COVERS: §4.5 — a.shiten_id = :shiten_id
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { shiten_id: 30, page: 1, per_page: 20 } as any,
+        adminSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql]: any[]) => typeof sql === 'string' && /\bshiten_?id\b/i.test(sql),
+      );
+      expect(call).toBeDefined();
+      expect(call[1]).toEqual({ shiten_id: 30 });
+    });
+
+    it('should sort by role_name (joined m_roles column) when sort_by=role_name is requested', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { sort_by: 'role_name', sort_order: 'asc' } as any,
+        adminSession(),
+      );
+
+      const orderCall = qbMock.orderBy.mock.calls.find(
+        ([col]: any[]) => typeof col === 'string' && /role_?name/i.test(col),
+      );
+      expect(orderCall).toBeDefined();
+      expect(orderCall[0]).toBe('r.role_name');
+    });
+
+    it('should fall back to sorting by a.created_at when sort_by is not a recognized column', async () => {
+      qbMock.getManyAndCount.mockResolvedValue([[], 0]);
+
+      await service.searchAccounts(
+        { sort_by: 'not_a_real_column', sort_order: 'asc' } as any,
+        adminSession(),
+      );
+
+      const orderCall = qbMock.orderBy.mock.calls.find(
+        ([col]: any[]) => col === 'a.created_at',
+      );
+      expect(orderCall).toBeDefined();
     });
 
     it('should always filter deleted_at IS NULL when querying accounts', async () => {
@@ -1169,6 +1245,77 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       ).rejects.toThrow(DuplicateCodeException);
     });
 
+    it('should throw ValidationException when role_id does not resolve to any m_roles row', async () => {
+      (service as any).roleRepo.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.createAccount(buildCreateAccountBody({ role_id: 999 }), adminSession(), baseReq),
+      ).rejects.toThrow(ValidationException);
+    });
+
+    it('should throw ValidationException when shiten_id does not resolve to any m_shiten row', async () => {
+      (service as any).shitenRepo.findOne.mockResolvedValueOnce(null);
+
+      await expect(
+        service.createAccount(
+          buildCreateAccountBody({ role_id: 5, ja_id: 1, kanri_shiten_id: 1, shiten_id: 999 }),
+          adminSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow(ValidationException);
+    });
+
+    it('should throw ValidationException when the shiten does not belong to the account JA (kanri_shiten matches, ja_id does not)', async () => {
+      // ja_id=1 so the earlier kanri_shiten FK-in-JA guard (fetchFkInJa)
+      // passes against the default kanriShitenRepo mock (jaId=1). The shiten
+      // row itself resolves with a DIFFERENT jaId=2 — kanri_shiten_id still
+      // matches (line 165-174 skipped) but the JA comparison (line 176-183)
+      // fails.
+      (service as any).shitenRepo.findOne.mockResolvedValueOnce({
+        shitenId: 1,
+        kanriShitenId: 1,
+        jaId: 2,
+      });
+
+      await expect(
+        service.createAccount(
+          buildCreateAccountBody({ role_id: 5, ja_id: 1, kanri_shiten_id: 1, shiten_id: 1 }),
+          adminSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow(ValidationException);
+    });
+
+    it('should convert a 23505 unique-violation race at INSERT time into a clean DuplicateCodeException', async () => {
+      // Pre-check passed (login_id looked unique) but a concurrent CREATE
+      // wins the race and hits the DB UNIQUE INDEX first.
+      const dbErr = new QueryFailedError('INSERT INTO m_account ...', [], {
+        code: '23505',
+      } as any);
+      txManager.save.mockRejectedValueOnce(dbErr);
+
+      await expect(
+        service.createAccount(buildCreateAccountBody(), adminSession(), baseReq),
+      ).rejects.toThrow(DuplicateCodeException);
+
+      expect(auditLog.logOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          logType: 3,
+          resultStatus: 2,
+          operation: 'CREATE',
+          targetTable: 'm_account',
+        }),
+      );
+    });
+
+    it('should throw NotFoundException when the re-read-after-write SELECT finds no row (commit/select race)', async () => {
+      qbMock.getRawOne.mockResolvedValueOnce(undefined);
+
+      await expect(
+        service.createAccount(buildCreateAccountBody(), adminSession(), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+
     it('should bcrypt-hash the password before persisting when CREATE is called', async () => {
       // COVERS: §4.4 — bcrypt(round=10) hashing
       await service.createAccount(
@@ -1451,6 +1598,43 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       expect(dataSource.transaction).not.toHaveBeenCalled();
     });
 
+    it('should FK-guard a newly-submitted kanri_shiten_id against the account\'s own JA (before.jaId), not the session', async () => {
+      // beforeEach seeds before.jaId=10. Default kanriShitenRepo mock
+      // resolves { kanriShitenId: 1, jaId: 1 } — mismatch → DATA_SCOPE_VIOLATION.
+      await expect(
+        service.updateAccount(
+          2,
+          buildUpdateAccountBody({ kanri_shiten_id: 5 }),
+          adminSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow();
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when the re-read-after-update SELECT finds no row (commit/select race)', async () => {
+      qbMock.getRawOne.mockResolvedValueOnce(undefined);
+
+      await expect(
+        service.updateAccount(2, buildUpdateAccountBody(), adminSession(), baseReq),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should validate shiten_id against the effective 管理支店 (dto.kanri_shiten_id ?? before.kanriShitenId) when the role is JA_KANRI_SHITEN', async () => {
+      // role_id=5 resolves JA_KANRI_SHITEN. dto omits kanri_shiten_id (null) so
+      // the effective 管理支店 falls back to before.kanriShitenId (null) —
+      // assertShitenBelongsToKanriShiten still runs and rejects on the
+      // before.jaId(10) vs shiten.jaId(1, default mock) mismatch.
+      await expect(
+        service.updateAccount(
+          2,
+          buildUpdateAccountBody({ role_id: 5, shiten_id: 1 }),
+          adminSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow(ValidationException);
+    });
+
     it('should NOT update password_hash when password is empty string (空欄=変更しない)', async () => {
       // COVERS: §4.4 — password が空欄の場合は変更しない
       await service.updateAccount(
@@ -1540,6 +1724,71 @@ describe('AccountService — SCR-025 (detail + create + update)', () => {
       await service.updateAccount(
         2,
         buildUpdateAccountBody({ todofuken_code: '27' }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should revoke sessions when ja_id (scope) changes', async () => {
+      // before.jaId=10 (fixture default) → 20.
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ ja_id: 20 }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should revoke sessions when kanri_shiten_id (scope) changes', async () => {
+      // FK guard (fetchFkInJa) must resolve the new kanri_shiten under the
+      // account's own JA (before.jaId=10) or it 403s before reaching the
+      // scope-change check.
+      (service as any).kanriShitenRepo.findOne.mockResolvedValueOnce({
+        kanriShitenId: 7,
+        jaId: 10,
+      });
+
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ kanri_shiten_id: 7 }),
+        adminSession(),
+        baseReq,
+      );
+      expect(
+        (service as any).sessionService.destroyAllForAccount,
+      ).toHaveBeenCalledWith(2);
+    });
+
+    it('should revoke sessions when shiten_id (scope) changes for a JA_KANRI_SHITEN role', async () => {
+      // Seed `before` as ALREADY JA_KANRI_SHITEN (roleId=5, shitenId=1) so the
+      // role-changed branch does NOT fire first and mask the shitenId-changed
+      // branch under test. assertShitenBelongsToKanriShiten must resolve the
+      // new shiten under before.jaId(10) (effective kanri_shiten is null on
+      // both sides here, so only the JA comparison applies).
+      const before = buildAccountFormEntity({
+        accountId: 2,
+        roleId: 5,
+        jaId: 10,
+        kanriShitenId: null,
+        shitenId: 1,
+      });
+      accountRepo.findOne.mockResolvedValue(before);
+      txManager.findOne.mockResolvedValue(before);
+      (service as any).shitenRepo.findOne.mockResolvedValueOnce({
+        shitenId: 3,
+        kanriShitenId: null,
+        jaId: 10,
+      });
+
+      await service.updateAccount(
+        2,
+        buildUpdateAccountBody({ role_id: 5, shiten_id: 3 }),
         adminSession(),
         baseReq,
       );

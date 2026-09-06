@@ -101,6 +101,10 @@ interface DokusyaFilters {
   biko: string;
   // 有効単価フラグ（ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂）。
   active_tanka_flg: ActiveFlgFilter;
+  // 購読者層分類（顧客CR 2026-08-24）。値は m_code DOKUSYASO_BUNRUI のコード
+  // （文字列）。CodeService.normalizeValue は数値化可能な code_value を
+  // number にするため、送信直前に String() で戻す（vue.md §Type-coercion gotcha）。
+  dokusyaso_bunrui: string | undefined;
 }
 
 const DEFAULT_FILTERS: DokusyaFilters = {
@@ -130,6 +134,7 @@ const DEFAULT_FILTERS: DokusyaFilters = {
   tanka_id: undefined,
   biko: '',
   active_tanka_flg: '',
+  dokusyaso_bunrui: undefined,
 };
 
 /** 有効単価フラグのラジオ値 → BE 送信用 boolean | undefined（'' は両方=送らない）。 */
@@ -253,13 +258,13 @@ const columns: TableColumnsType = [
     width: 100,
   },
   {
-    title: '連絡先1',
+    title: 'TEL1',
     dataIndex: 'renrakusaki_1',
     key: 'renrakusaki_1',
     width: 140,
   },
   {
-    title: '配送先連絡先1',
+    title: '配送先TEL1',
     dataIndex: 'haitatsu_renrakusaki_1',
     key: 'haitatsu_renrakusaki_1',
     width: 140,
@@ -427,6 +432,7 @@ function applyTextFilters(
   if (f.email) params.email = f.email;
   // 郵送区分は '0'/'1' の非空文字列（'0' も truthy なので単純判定で可）。
   if (f.yubin_kubun) params.yubin_kubun = f.yubin_kubun;
+  if (f.dokusyaso_bunrui) params.dokusyaso_bunrui = f.dokusyaso_bunrui;
   if (f.biko) params.biko = f.biko;
   if (f.seikyu_kaishi_month_from)
     params.seikyu_kaishi_month_from = f.seikyu_kaishi_month_from;
@@ -1157,7 +1163,7 @@ defineExpose({ state });
           />
         </div>
 
-        <!-- 15. 連絡先（購読者連絡先1/2・配達先連絡先1/2を横断部分一致検索） -->
+        <!-- 15. 連絡先（購読者TEL1/2・配達先TEL1/2を横断部分一致検索） -->
         <div class="flex items-center gap-2 flex-wrap text-sm font-medium text-text-main">
           <span class="whitespace-nowrap">連絡先</span>
           <a-input
@@ -1235,24 +1241,42 @@ defineExpose({ state });
           </div>
         </div>
 
-        <!-- 19. 支払方法（ラジオ、m_code SHIHARAI_HOHO）— 全幅
-             (col-span-full) にし、狭いグリッドセルで折返さず1行に並べる
-             （index.html 準拠）。 -->
-        <div class="col-span-full flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap leading-[22px]">支払方法</span>
-          <a-radio-group
-            name="shiharai_hoho"
-            v-model:value="state.filters.shiharai_hoho"
-            class="flex-1 flex flex-wrap gap-y-2"
-          >
-            <a-radio
-              v-for="opt in codes.options('SHIHARAI_HOHO')"
-              :key="String(opt.value)"
-              :value="Number(opt.value)"
+        <!-- 19. 支払方法（ラジオ、m_code SHIHARAI_HOHO）+ 有効単価フラグ
+             （ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂。単価一覧
+             (ACSMS-SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者
+             のみ、無効=失効単価を参照する購読者のみ、未選択=両方。口座振替出力の失効単価
+             エラーからは ?inactive_tanka=1 で「無効」が初期選択される）
+             — 顧客CR 2026-08-24 で同一行に統合。全幅 (col-span-full) にし、
+             狭いグリッドセルで折返さず1行に並べる。 -->
+        <div class="col-span-full flex items-start gap-x-6 gap-y-2 flex-wrap text-sm font-medium text-text-main">
+          <div class="flex items-start gap-2 flex-wrap">
+            <span class="whitespace-nowrap leading-[22px]">支払方法</span>
+            <a-radio-group
+              name="shiharai_hoho"
+              v-model:value="state.filters.shiharai_hoho"
+              class="flex flex-wrap gap-y-2"
             >
-              {{ opt.label }}
-            </a-radio>
-          </a-radio-group>
+              <a-radio
+                v-for="opt in codes.options('SHIHARAI_HOHO')"
+                :key="String(opt.value)"
+                :value="Number(opt.value)"
+              >
+                {{ opt.label }}
+              </a-radio>
+            </a-radio-group>
+          </div>
+
+          <div class="flex items-start gap-2 flex-wrap">
+            <span class="whitespace-nowrap leading-[22px]">有効単価フラグ</span>
+            <a-radio-group
+              name="active_tanka_flg"
+              v-model:value="state.filters.active_tanka_flg"
+              data-test="active-tanka-filter"
+            >
+              <a-radio value="1">有効</a-radio>
+              <a-radio value="0">無効</a-radio>
+            </a-radio-group>
+          </div>
         </div>
 
         <!-- 20. 郵送区分 (dropdown, m_code YUBIN_KUBUN: 0:空 / 1:郵送) -->
@@ -1298,19 +1322,26 @@ defineExpose({ state });
           />
         </div>
 
-        <!-- 有効単価フラグ（ACSMS-SCR-020 error gate 連携・顧客要件2026-07 改訂）。単価一覧
-             (ACSMS-SCR-006)と同一のトライステートラジオ: 有効=有効単価を参照する購読者のみ、
-             無効=失効単価を参照する購読者のみ、未選択=両方。口座振替出力の失効単価
-             エラーからは ?inactive_tanka=1 で「無効」が初期選択される。 -->
+        <!-- 購読者層分類（ラジオ、m_code DOKUSYASO_BUNRUI）— 顧客CR 2026-08-24 で追加。
+             全幅 (col-span-full) にし、狭いグリッドセルで折返さず1行に並べる
+             （支払方法・有効単価フラグと同じスタイル）。値は文字列コード —
+             CodeService.normalizeValue が数値化するため String() で戻す
+             （vue.md §Type-coercion gotcha）。BE は t_dokusya.dokusyaso_bunrui
+             （CSV）内にこのコードを含む行を検索する。 -->
         <div class="col-span-full flex items-start gap-2 flex-wrap text-sm font-medium text-text-main">
-          <span class="whitespace-nowrap leading-[22px]">有効単価フラグ</span>
+          <span class="whitespace-nowrap leading-[22px]">購読者層分類</span>
           <a-radio-group
-            name="active_tanka_flg"
-            v-model:value="state.filters.active_tanka_flg"
-            data-test="active-tanka-filter"
+            name="dokusyaso_bunrui"
+            v-model:value="state.filters.dokusyaso_bunrui"
+            class="flex-1 flex flex-wrap gap-y-2"
           >
-            <a-radio value="1">有効</a-radio>
-            <a-radio value="0">無効</a-radio>
+            <a-radio
+              v-for="opt in codes.options('DOKUSYASO_BUNRUI')"
+              :key="String(opt.value)"
+              :value="String(opt.value)"
+            >
+              {{ opt.label }}
+            </a-radio>
           </a-radio-group>
         </div>
       </template>

@@ -29,18 +29,21 @@ const showBreadcrumb = computed(
   () => breadcrumbs.value.length > 1 && route.name !== 'Dashboard',
 );
 
+/**
+ * 表示形式: account_name (login_ID): role_name（顧客CR 2026-08-24）。
+ * 未ログイン時は login_id が無いので「ゲスト」のみ表示する。
+ */
 const displayName = computed(() => {
-  const id = user.value?.login_id ?? 'ゲスト';
-  const role = user.value?.role_name;
-  return role ? `${id}:${role}` : id;
+  if (!user.value) return 'ゲスト';
+  return `${user.value.account_name} (${user.value.login_id}): ${user.value.role_name}`;
 });
 
 /**
  * ヘッダーにアカウント名を出せる最小幅（px）。ヘッダー行の内訳:
  *   ハンバーガー 40 + gap 16
- *   右グループ ≈300（ベル40 + gap12 + 区切り/pl 8 + アバター32 + gap8 + 名前 max200）
+ *   右グループ ≈260（区切り/pl 8 + アバター32 + gap8 + 名前 max200 + gap12）
  *   タイトル欄は最長级の「統廃合販売店読者移行」(24px×10 ≈240px) が入る幅がほしい
- * → 40 + 16 + 240 + 16 + 300 ≈ 610。余裕を見て 640。
+ * → 40 + 16 + 240 + 16 + 260 ≈ 570。余裕を見て 640。
  *
  * 896 だと iPad + サイドバー展開（実幅 ≈842px）で名前が出ず、ヘッダーに
  * 明らかな余白があるのに隠れていた（顧客指摘 2026-08）。640 なら
@@ -132,12 +135,13 @@ function onMfaSwitchClick(): void {
 <template>
   <!-- Layout
        ──────────────────────────────────────────────────────────────
-       │ ☰  JAマスタ登録画面            🔔  ⊕ admin:日農（管理者） │
+       │ ☰  JAマスタ登録画面    ⊕ 管理者太郎 (admin01): 日農（管理者） │
        │    ホーム ▶ マスタ管理 ▶ JAマスタ登録画面                 │
        ──────────────────────────────────────────────────────────────
        ハンバーガーは独立した flex 要素として左端に配置。タイトル + パンくずは
        同じ X 座標から始まるよう 1 つの共有カラム内に置く（手動 padding 調整不要）。
-       右グループ（ベル + ユーザー）は右端に配置。 -->
+       右グループ（ユーザー）は右端に配置。ベル（通知）アイコンは顧客CR
+       (2026-08-24) により削除済み。 -->
   <header ref="headerEl" class="flex justify-between items-start gap-4">
     <button
       type="button"
@@ -200,21 +204,10 @@ function onMfaSwitchClick(): void {
     </div>
 
     <div class="flex items-center gap-3 flex-shrink-0">
-      <button
-        type="button"
-        aria-label="通知"
-        class="p-2 text-icon hover:text-primary hover:bg-surface-hover rounded-full transition-colors relative"
-      >
-        <span class="material-icons">notifications</span>
-        <span
-          class="absolute top-2 right-2 w-2 h-2 bg-error rounded-full border-2 border-surface-card"
-        />
-      </button>
-
       <a-dropdown :trigger="['click']" placement="bottomRight">
         <button
           type="button"
-          class="flex items-center gap-2 sm:pl-2 sm:border-l border-border hover:text-primary transition-colors"
+          class="flex items-center gap-2 hover:text-primary transition-colors"
         >
           <div
             class="w-8 h-8 rounded-full bg-surface-hover flex items-center justify-center overflow-hidden"
@@ -225,7 +218,7 @@ function onMfaSwitchClick(): void {
                が詰まり、truncate(overflow:hidden) が "g/y/p" のディセンダを切る。
                行高に余裕を持たせ下端のはみ出しを防ぐ。 -->
           <!-- アカウント名はヘッダーが窮屈なうちは出さない（顧客要望 2026-08）。
-               この行は「ページタイトル / ベル / アバター / アカウント名」を
+               この行は「ページタイトル / アバター / アカウント名」を
                分け合っており、名前（≈150px）を出すとタイトル側が削られて
                「購読者…」まで潰れていた。狭いときは代わりにドロップダウン
                （下記 account-info）へ出す。判定は canShowNameInHeader に一本化。

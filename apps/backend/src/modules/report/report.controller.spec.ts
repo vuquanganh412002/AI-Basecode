@@ -317,6 +317,7 @@ describe('ReportController (HTTP) — 増減連絡票（販売店） (SCR-028)',
       exportMeiboExcel: jest.fn(),
       previewZougenHanbaiten: jest.fn(),
       exportZougenHanbaitenPdf: jest.fn(),
+      exportZougenHanbaitenExcel: jest.fn(),
     };
     currentSession = buildChuokaiSession({
       ja_id: 1,
@@ -506,6 +507,73 @@ describe('ReportController (HTTP) — 増減連絡票（販売店） (SCR-028)',
       service.exportZougenHanbaitenPdf.mockRejectedValue(new Error('pdf-down'));
       const res = await http()
         .post(apiUrl('report/zougen-hanbaiten/export'))
+        .send({ tekiyo_date: '2026-05-01', hanbaiten_id: [200] })
+        .expect(500);
+      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ─── POST /api/v1/report/zougen-hanbaiten/export-excel（顧客要件2026-08-26）──
+  describe('POST /api/v1/report/zougen-hanbaiten/export-excel', () => {
+    it('should return 200 with an xlsx attachment when data exists', async () => {
+      service.exportZougenHanbaitenExcel.mockResolvedValue({
+        empty: false,
+        buffer: Buffer.from('PK...'),
+        filename: '増減連絡票_販売店_2026年05月01日.xlsx',
+        asciiFilename: 'zougen_hanbaiten_20260501.xlsx',
+      });
+
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
+        .send({ tekiyo_date: '2026-05-01', hanbaiten_id: [200] })
+        .expect(200);
+
+      expect(res.headers['content-type']).toContain(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      expect(res.headers['content-disposition']).toContain('attachment');
+    });
+
+    it('should return 400 VALIDATION_ERROR when tekiyo_date is missing', async () => {
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
+        .send({ hanbaiten_id: [200] })
+        .expect(400);
+      expect(res.body.error_code).toBe('VALIDATION_ERROR');
+    });
+
+    it('should return 401 UNAUTHORIZED when session cookie is missing', async () => {
+      currentSession = null;
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
+        .send({ tekiyo_date: '2026-05-01' })
+        .expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when user lacks report.export_zougen_hanbaiten', async () => {
+      currentPermissions = [];
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
+        .send({ tekiyo_date: '2026-05-01' })
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 200 application/json with empty reports (NOT 404) when service reports no matching data', async () => {
+      service.exportZougenHanbaitenExcel.mockResolvedValue({ empty: true });
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
+        .send({ tekiyo_date: '2026-05-01' })
+        .expect(200);
+      expect(res.headers['content-type']).toContain('application/json');
+      expect(res.body.data.reports).toEqual([]);
+    });
+
+    it('should return 500 INTERNAL_SERVER_ERROR when export throws an unexpected error', async () => {
+      service.exportZougenHanbaitenExcel.mockRejectedValue(new Error('excel-down'));
+      const res = await http()
+        .post(apiUrl('report/zougen-hanbaiten/export-excel'))
         .send({ tekiyo_date: '2026-05-01', hanbaiten_id: [200] })
         .expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');

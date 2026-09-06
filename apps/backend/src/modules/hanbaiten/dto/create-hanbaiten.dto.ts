@@ -78,16 +78,15 @@ export class CreateHanbaitenDto {
   })
   hanbaiten_name_kana?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     description: '都道府県コード（2桁）',
     minLength: 2,
     maxLength: 2,
   })
-  @Transform(blankToUndef)
-  @IsOptional()
   @IsString({ message: '都道府県コードは文字列で指定してください。' })
+  @IsNotEmpty({ message: '都道府県コードは必須です。' })
   @Length(2, 2, { message: '都道府県コードは2桁で指定してください。' })
-  todofuken_code?: string;
+  todofuken_code!: string;
 
   @ApiPropertyOptional({
     description: '適格請求書発行事業者番号',

@@ -67,14 +67,15 @@ Tài liệu này mô tả chi tiết test specification cho "Màn hình đăng k
 
 # カテゴリ 1: Kiểm soát quyền truy cập (Access Control)
 
-## ACSMS-TC-007-001 — Cấm truy cập màn đăng ký Master Chi nhánh bởi NICHINO_ADMIN
+## ACSMS-TC-007-001 — Cho phép NICHINO_ADMIN truy cập màn đăng ký Master Chi nhánh (nhập hộ JA)
 
 - 観点ID: VP-A-01
-- 種類: Abnormal (異常)
+- 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・Đã login + đã xác thực MFA
-  - ・Không có quyền `shiten.view` / `shiten.create` / `shiten.update` (tham khảo ma trận seeder.md §3)
+  - ・Có quyền `shiten.view` / `shiten.create` / `shiten.update` (cấp chính thức theo CR khách hàng 2026-08-24, tham khảo ma trận seeder.md §3)
+  - ・session.ja_id là null (NICHINO_ADMIN không thuộc JA nào)
 
 ### 手順
 
@@ -85,28 +86,29 @@ Mở dashboard, kiểm tra item "支店マスタ" trên sidebar
 Nhập `/shiten/create` vào address bar trình duyệt, truy cập trực tiếp
 
 ステップ3：
-Từ Console DevTools gửi POST `/api/v1/shiten` với request body hợp lệ
+Ở dropdown "JA名" (BaseJaDropdown) hiển thị đầu form, không chọn JA rồi bấm nút đăng ký
 
 ステップ4：
-Kiểm tra DB: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 'm_shiten' ORDER BY log_datetime DESC LIMIT 1`
+Chọn JA ở "JA名", nhập đủ các trường bắt buộc rồi gửi POST `/api/v1/shiten`
 
 ### 期待結果
 
 ステップ1：
-Item "支店マスタ" không được hiển thị trên sidebar (do không có quyền `shiten.view`)
+Item "支店マスタ" được hiển thị trên sidebar (do có quyền `shiten.view`)
 
 ステップ2：
-Hiển thị toast `アクセス権がありません。` + chuyển về `/dashboard`
+Màn hình đăng ký `/shiten/create` hiển thị bình thường. Trường bắt buộc "JA名" (BaseJaDropdown) xuất hiện ở đầu form (chỉ hiển thị cho luồng nhập hộ [staff-ja-id] — 3 role JA-scope không thấy trường này)
 
 ステップ3：
-Trả về HTTP 403 (`error_code: FORBIDDEN`, message `この画面へのアクセス権限がありません。`)
+Validate phía client báo lỗi bắt buộc ở "JA名" (`必須項目です。`), không gửi request
 
 ステップ4：
-Có ≥1 dòng error log được ghi, `account_id` khớp với test account, không có row mới được thêm vào `m_shiten`
+Trả về HTTP 201, thêm row mới vào `m_shiten` với `ja_id` của JA đã chọn. Dropdown "管理支店" (`GET /api/v1/shiten/dropdown` liên quan) được scope lại theo JA vừa chọn và tải lại
 
 補足：
-・Cả 3 tầng FE menu / FE router guard / BE API guard đều block truy cập
-・Theo ma trận seeder.md §3, Master Chi nhánh chỉ CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN thao tác được. NICHINO_ADMIN không thuộc đối tượng.
+・Cả 3 tầng FE menu / FE router guard / BE API guard đều cho phép truy cập nhất quán
+・BE chấp nhận `dto.ja_id` (nhập hộ) nhưng 3 role JA-scope (CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN) gửi field này cũng bị bỏ qua — luôn dùng session.ja_id (chống inject cross-tenant, xem `create()` trong shiten.service.ts)
+・NICHINO_STAFF không thuộc phạm vi CR này — vẫn không có quyền `shiten.*`, vẫn bị cấm truy cập
 
 ### テスト結果（1回目）
 

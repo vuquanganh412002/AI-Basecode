@@ -67,14 +67,15 @@ reviewer: Nguyen Huy Dat
 
 # カテゴリ 1: アクセス権限制御（Access Control）
 
-## ACSMS-TC-006-001 — NICHINO_ADMIN による支店マスタ明細検索画面 アクセス禁止
+## ACSMS-TC-006-001 — NICHINO_ADMIN による支店マスタ明細検索画面 アクセス許可（全JA横断）
 
 - 観点ID: VP-A-01
-- 種類: Abnormal (異常)
+- 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・権限 `shiten.view` を保持しない
+  - ・権限 `shiten.view` を保持する（顧客CR 2026-08-24 で正式付与、migration `1787385200000-GrantShitenAllToNichinoAdmin`）
+  - ・session.ja_id は null（NICHINO_ADMIN はどの JA にも属さない）
 
 ### 手順
 
@@ -88,25 +89,25 @@ URL `/shiten` に直接アクセス
 DevTools で GET `/api/v1/shiten` を直接呼び出し
 
 ステップ4：
-DB 確認: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 'm_shiten' ORDER BY log_datetime DESC LIMIT 1`
+異なる複数 JA に属する支店データが混在する状態で一覧を確認
 
 ### 期待結果
 
 ステップ1：
-サイドバーに「支店マスタ」項目が表示されないこと（権限 `shiten.view` を持たないため）
+サイドバーに「支店マスタ」項目が表示されること（権限 `shiten.view` を保持するため）
 
 ステップ2：
-トースト `アクセス権がありません。` が表示されること、かつ `/dashboard` へ遷移すること
+`/shiten` 一覧画面が表示されること（`/dashboard` へのリダイレクトが発生しないこと）
 
 ステップ3：
-HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `この画面へのアクセス権限がありません。`）
+HTTPステータスコード200が返却され、`data` に支店一覧が含まれること
 
 ステップ4：
-エラーログが1件以上記録されること、`account_id` がテストアカウントと一致すること
+session.ja_id が null のため DataScope フィルタが適用されず、全JAの支店行が返却されること（`applyBranchScope` の `session.ja_id == null` bypass）。ただし「管理支店」検索フィルタの dropdown は単一 JA スコープの API（`GET /api/v1/kanri-shiten/dropdown` は `ja_id` 必須）のため空のまま — 支店コード／支店名／データ送信取扱店舗コード／金融機関支店フラグの4フィルタで絞り込む。
 
 補足：
-・フロントエンド側メニュー、フロントエンド側ルーターガード、バックエンド側 APIガードの3層すべてでアクセスが拒否されること
-・`m_shiten` への変更が発生しないこと
+・フロントエンド側メニュー、フロントエンド側ルーターガード、バックエンド側 APIガードの3層すべてで一貫してアクセスが許可されること
+・NICHINO_STAFF は本CRの対象外 — 依然 `shiten.view` を保持せず ACSMS-TC-006-002 と同様にアクセス禁止のまま
 
 ### テスト結果（1回目）
 
@@ -130,7 +131,7 @@ HTTPステータスコード403が返却されること（`error_code: FORBIDDEN
 
 ### 備考
 
-`docs/database/seeder.md §3` の権限マトリクスでは `shiten.view` は CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN のみに付与されており、NICHINO_ADMIN は支店マスタへのアクセス権を保持しない。
+`docs/database/seeder.md §3` の権限マトリクスでは `shiten.view` は CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN に加え、顧客CR 2026-08-24 以降 NICHINO_ADMIN にも付与されている（role_permission_id 116-119）。旧仕様（アクセス禁止）は `docs/requirement/account_concept.md` §198 の履歴（git blame）を参照。
 
 ## ACSMS-TC-006-002 — NICHINO_STAFF による支店マスタ明細検索画面 アクセス禁止
 

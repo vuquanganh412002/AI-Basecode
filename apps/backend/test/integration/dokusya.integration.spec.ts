@@ -312,10 +312,10 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-SEC-BAD', ja_id: 99 } as any))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'SEC-BAD', ja_id: 99 } as any))
         .expect(400);
       const bad = await ctx.dataSource.query(
-        `SELECT ja_id FROM t_dokusya WHERE kumiaiin_code = 'INT-SEC-BAD'`,
+        `SELECT ja_id FROM t_dokusya WHERE kumiaiin_code = 'SEC-BAD'`,
       );
       expect(bad).toHaveLength(0);
 
@@ -340,7 +340,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(
           buildCreateDokusyaBody({
-            kumiaiin_code: 'INT-HEIDOKU',
+            kumiaiin_code: 'HEIDOKU',
             dokusya_shubetsu: 3,
           }),
         )
@@ -352,7 +352,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         ),
       ).toBe(true);
       const persisted = await ctx.dataSource.query(
-        `SELECT dokusya_id FROM t_dokusya WHERE kumiaiin_code = 'INT-HEIDOKU'`,
+        `SELECT dokusya_id FROM t_dokusya WHERE kumiaiin_code = 'HEIDOKU'`,
       );
       expect(persisted).toHaveLength(0);
     });
@@ -426,7 +426,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
-          kumiaiin_code: 'INT-BAD-BANK',
+          kumiaiin_code: 'BAD-BANK',
           shiharai_hoho: 1,
           bank_shiten_id: 9999,
         }))
@@ -521,7 +521,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
-          kumiaiin_code: 'INT-EMAIL-REQ',
+          kumiaiin_code: 'EML-REQ',
           dokusya_shubetsu: 2,
           email: undefined,
         }))
@@ -540,7 +540,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
-          kumiaiin_code: 'INT-EMAIL-OPT',
+          kumiaiin_code: 'EML-OPT',
           dokusya_shubetsu: 1,
           email: undefined,
         }))
@@ -630,7 +630,7 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
     });
 
     it('should return 404 when target belongs to another JA (DataScope masks as 404)', async () => {
-      const id = await seedDokusya('INT-GET-CROSS');
+      const id = await seedDokusya('GET-CROSS');
       // Cross-scope user from ja_id=2 should not see ja_id=1 record
       const sid = await asJaHonten(2);
       await http()
@@ -1305,9 +1305,9 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-HIST-LBL' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'HIST-LBL' }))
         .expect(201);
-      const id = await getDokusyaIdByKumiaiin('INT-HIST-LBL');
+      const id = await getDokusyaIdByKumiaiin('HIST-LBL');
 
       const res = await http()
         .get(apiUrl(`dokusya/${id}/history`))
@@ -1334,9 +1334,9 @@ describe('ACSMS-SCR-011 integration — dokusya CRUD/approve/reject/history', ()
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid1)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-HIST-CROSS' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'HIST-CRS' }))
         .expect(201);
-      const id = await getDokusyaIdByKumiaiin('INT-HIST-CROSS');
+      const id = await getDokusyaIdByKumiaiin('HIST-CRS');
 
       const sid2 = await asJaHonten(2);
       await http()
@@ -1626,7 +1626,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(
           buildCreateDokusyaBody({
-            kumiaiin_code: 'INT-INACT-A',
+            kumiaiin_code: 'INACT-A',
             email: 'int-inact-a@example.com',
             tanka_id: 1,
           }),
@@ -1644,7 +1644,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(
           buildCreateDokusyaBody({
-            kumiaiin_code: 'INT-INACT-B',
+            kumiaiin_code: 'INACT-B',
             email: 'int-inact-b@example.com',
             tanka_id: 2,
           }),
@@ -1659,30 +1659,30 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       const off = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-INACT' })
+        .query({ kumiaiin_code: 'INACT' })
         .expect(200);
       const offCodes = off.body.data.map((r: any) => r.kumiaiin_code);
-      expect(offCodes).toEqual(expect.arrayContaining(['INT-INACT-A', 'INT-INACT-B']));
+      expect(offCodes).toEqual(expect.arrayContaining(['INACT-A', 'INACT-B']));
 
       // 無効(active_tanka_flg=false) → 失効単価参照の B のみ。A は除外される。
       const invalid = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-INACT', active_tanka_flg: 'false' })
+        .query({ kumiaiin_code: 'INACT', active_tanka_flg: 'false' })
         .expect(200);
       const invalidCodes = invalid.body.data.map((r: any) => r.kumiaiin_code);
-      expect(invalidCodes).toEqual(expect.arrayContaining(['INT-INACT-B']));
-      expect(invalidCodes).not.toEqual(expect.arrayContaining(['INT-INACT-A']));
+      expect(invalidCodes).toEqual(expect.arrayContaining(['INACT-B']));
+      expect(invalidCodes).not.toEqual(expect.arrayContaining(['INACT-A']));
 
       // 有効(active_tanka_flg=true) → 有効単価参照の A のみ。B は除外される。
       const valid = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-INACT', active_tanka_flg: 'true' })
+        .query({ kumiaiin_code: 'INACT', active_tanka_flg: 'true' })
         .expect(200);
       const validCodes = valid.body.data.map((r: any) => r.kumiaiin_code);
-      expect(validCodes).toEqual(expect.arrayContaining(['INT-INACT-A']));
-      expect(validCodes).not.toEqual(expect.arrayContaining(['INT-INACT-B']));
+      expect(validCodes).toEqual(expect.arrayContaining(['INACT-A']));
+      expect(validCodes).not.toEqual(expect.arrayContaining(['INACT-B']));
     });
 
     it('should compute is_read_only=true for 併読者 (dokusya_shubetsu=3) in list response', async () => {
@@ -1693,20 +1693,20 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-014-HEIDO' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'I14-HEIDO' }))
         .expect(201);
       await ctx.dataSource.query(
-        `UPDATE t_dokusya SET dokusya_shubetsu = 3 WHERE kumiaiin_code = 'INT-014-HEIDO'`,
+        `UPDATE t_dokusya SET dokusya_shubetsu = 3 WHERE kumiaiin_code = 'I14-HEIDO'`,
       );
 
       const res = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-014-HEIDO' })
+        .query({ kumiaiin_code: 'I14-HEIDO' })
         .expect(200);
 
       const target = res.body.data.find(
-        (r: any) => r.kumiaiin_code === 'INT-014-HEIDO',
+        (r: any) => r.kumiaiin_code === 'I14-HEIDO',
       );
       expect(target?.is_read_only).toBe(true);
     });
@@ -1717,7 +1717,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid1)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-014-JA1-ONLY' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'I14-JA1ON' }))
         .expect(201);
 
       // Other-JA user searches — must NOT see ja_id=1 row
@@ -1725,11 +1725,11 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       const res = await http()
         .get(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid2)])
-        .query({ kumiaiin_code: 'INT-014-JA1-ONLY' })
+        .query({ kumiaiin_code: 'I14-JA1ON' })
         .expect(200);
 
       const found = res.body.data.find(
-        (r: any) => r.kumiaiin_code === 'INT-014-JA1-ONLY',
+        (r: any) => r.kumiaiin_code === 'I14-JA1ON',
       );
       expect(found).toBeUndefined();
     });
@@ -1757,7 +1757,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
   // API-014-002 — DELETE /api/v1/dokusya/:dokusya_id
   // ════════════════════════════════════════════════════════════════════════
   describe('DELETE /api/v1/dokusya/:dokusya_id', () => {
-    async function seedDeletable(code = 'INT-014-DEL') {
+    async function seedDeletable(code = 'DEL01') {
       const sid = await asChuokai(1);
       await http()
         .post(apiUrl('dokusya'))
@@ -1791,7 +1791,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       // 回帰: t_koza_furikae は deleted_at 列を持たない。remove() の FK ガードが
       // `deleted_at IS NULL` で絞ると本番で「column does not exist」→ 500。
       // 行があれば 409 CONFLICT で弾けることを実スキーマ準拠の fixture で保証。
-      const { id, sid } = await seedDeletable('INT-014-DEL-FK');
+      const { id, sid } = await seedDeletable('DEL-FK');
       await ctx.dataSource.query(
         `INSERT INTO t_koza_furikae (dokusya_id) VALUES ($1)`,
         [id],
@@ -1818,7 +1818,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
     it('should return 403 SHUBETSU_PERMISSION_DENIED deleting a 紙版 row without paper_flg', async () => {
       // account_concept.md §139-145 — 紙版(1) の削除には paper_flg が必要。
       // 13 (denshi-only) は paper_flg=false → 403.
-      const { id } = await seedDeletable('INT-014-DEL-NP');
+      const { id } = await seedDeletable('DEL-NP');
       // account 13 = denshi-only (paper_flg=false) — seeded in this block too.
       const sid = await ctx.seedSession({
         account_id: 13,
@@ -1841,7 +1841,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
     });
 
     it('should write a t_log row (operation=DELETE, log_type=1, result_status=1) in the same tx', async () => {
-      const { id, sid } = await seedDeletable('INT-014-DEL-LOG');
+      const { id, sid } = await seedDeletable('DEL-LOG');
       await http()
         .delete(apiUrl(`dokusya/${id}`))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
@@ -1872,7 +1872,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
     });
 
     it('should return 404 when target belongs to a different JA (DataScope masks as 404)', async () => {
-      const { id } = await seedDeletable('INT-014-DEL-CROSS');
+      const { id } = await seedDeletable('DEL-CROSS');
       const sid = await asJaHonten(2);
       const res = await http()
         .delete(apiUrl(`dokusya/${id}`))
@@ -1891,12 +1891,12 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
         .send(buildCreateDokusyaBody({
-          kumiaiin_code: 'INT-014-READONLY',
+          kumiaiin_code: 'I14-RDONLY',
           dokusya_shubetsu: 2,
           shiharai_hoho: 1,
         }))
         .expect(201);
-      const id = await getDokusyaIdByKumiaiin('INT-014-READONLY');
+      const id = await getDokusyaIdByKumiaiin('I14-RDONLY');
       await ctx.dataSource.query(
         `UPDATE t_dokusya SET shiharai_hoho = 6 WHERE dokusya_id = $1`,
         [id],
@@ -1923,13 +1923,13 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-014-EXP' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'I14-EXP' }))
         .expect(201);
 
       const res = await http()
         .get(apiUrl('dokusya/export'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-014-EXP' })
+        .query({ kumiaiin_code: 'I14-EXP' })
         .expect(200);
 
       expect(res.headers['content-type']).toContain(
@@ -1947,7 +1947,7 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       const res = await http()
         .get(apiUrl('dokusya/export'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'NO-SUCH-CODE-XYZ' })
+        .query({ kumiaiin_code: 'NOSUCHCODE' })
         .expect(404);
       expect(res.body.error_code).toBe('EXPORT_NO_DATA');
     });
@@ -1957,13 +1957,13 @@ describe('ACSMS-SCR-014 integration — dokusya list / delete / export', () => {
       await http()
         .post(apiUrl('dokusya'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .send(buildCreateDokusyaBody({ kumiaiin_code: 'INT-014-EXP-LOG' }))
+        .send(buildCreateDokusyaBody({ kumiaiin_code: 'I14-EXPLOG' }))
         .expect(201);
 
       await http()
         .get(apiUrl('dokusya/export'))
         .set('Cookie', [buildSessionCookie(ctx.app, sid)])
-        .query({ kumiaiin_code: 'INT-014-EXP-LOG' })
+        .query({ kumiaiin_code: 'I14-EXPLOG' })
         .expect(200);
 
       const logs = await ctx.dataSource.query(

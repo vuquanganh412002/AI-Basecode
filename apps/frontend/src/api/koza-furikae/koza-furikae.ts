@@ -121,6 +121,29 @@ function filenameFromDisposition(cd: string | undefined): string | null {
   return plain ? plain[1] : null;
 }
 
+/** 409/404 応答 body から error_code を取り出し、あれば正規化エラーを throw する。 */
+function normalizeKozaFurikaeError(err: unknown): never {
+  const body = (
+    err as AxiosError<{
+      error_code?: string;
+      message?: string;
+      errors?: KozaFurikaeErrorDetail[];
+      total?: number;
+    }>
+  ).response?.data;
+  const code = body?.error_code;
+  if (code) {
+    const normalized: KozaFurikaeError = {
+      error_code: code,
+      message: body?.message,
+      errors: body?.errors,
+      total: body?.total,
+    };
+    throw normalized;
+  }
+  throw err;
+}
+
 /** GET /api/v1/koza-furikae/initial — ACSMS-API-020-001. */
 export async function getInitialKozaFurikae(): Promise<KozaFurikaeInitialEnvelope> {
   const res = await axiosInstance.get<KozaFurikaeInitialEnvelope>(
@@ -145,26 +168,7 @@ export async function previewKozaFurikae(
     );
     return res.data;
   } catch (err) {
-    const body = (
-      err as AxiosError<{
-        error_code?: string;
-        message?: string;
-        errors?: KozaFurikaeErrorDetail[];
-        total?: number;
-      }>
-    ).response?.data;
-    const code = body?.error_code;
-    if (code) {
-      // 失効単価参照(409)は errors[]（先頭15件）+ total（総件数）+ message を view に渡す。
-      const normalized: KozaFurikaeError = {
-        error_code: code,
-        message: body?.message,
-        errors: body?.errors,
-        total: body?.total,
-      };
-      throw normalized;
-    }
-    throw err;
+    normalizeKozaFurikaeError(err);
   }
 }
 
@@ -192,25 +196,31 @@ export async function exportKozaFurikae(
       filename: filenameFromDisposition(res.headers['content-disposition']),
     };
   } catch (err) {
-    const body = (
-      err as AxiosError<{
-        error_code?: string;
-        message?: string;
-        errors?: KozaFurikaeErrorDetail[];
-        total?: number;
-      }>
-    ).response?.data;
-    const code = body?.error_code;
-    if (code) {
-      // 失効単価参照(409)は errors[]（先頭15件）+ total（総件数）+ message を view に渡す。
-      const normalized: KozaFurikaeError = {
-        error_code: code,
-        message: body?.message,
-        errors: body?.errors,
-        total: body?.total,
-      };
-      throw normalized;
-    }
-    throw err;
+    normalizeKozaFurikaeError(err);
+  }
+}
+
+/**
+ * POST /api/v1/koza-furikae/export-excel — ACSMS-API-020-004. レポート
+ * プレビュー（預金者名/引落支店/口座番号/金額）と同じ内容の Excel を Blob で
+ * 返す。全銀フォーマット出力（exportKozaFurikae）とは別の出力形式で、
+ * こちらは t_koza_furikae を更新しない読み取り専用の帳票出力。
+ * 対象0件のとき BE は 404 (NO_TARGET_DATA) を返す。
+ */
+export async function exportKozaFurikaeExcel(
+  body: ExportKozaFurikaeBody,
+): Promise<ExportKozaFurikaeResult> {
+  try {
+    const res = await axiosInstance.post(
+      '/api/v1/koza-furikae/export-excel',
+      body,
+      { responseType: 'blob' },
+    );
+    return {
+      blob: res.data as Blob,
+      filename: filenameFromDisposition(res.headers['content-disposition']),
+    };
+  } catch (err) {
+    normalizeKozaFurikaeError(err);
   }
 }

@@ -73,6 +73,15 @@ export class ReportService {
     return this.zougen.exportZougenHanbaitenPdf(query, session, req);
   }
 
+  // ─── ACSMS-API-028-003 — POST /api/v1/report/zougen-hanbaiten/export-excel ──
+  exportZougenHanbaitenExcel(
+    query: ZougenHanbaitenQueryDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<ExportZougenResult> {
+    return this.zougen.exportZougenHanbaitenExcel(query, session, req);
+  }
+
   // ─── ACSMS-API-029-001 — GET /api/v1/report/zougen-nichino/preview ────
   previewZougenNichino(
     query: ZougenNichinoQueryDto,
@@ -88,5 +97,14 @@ export class ReportService {
     req: Request,
   ): Promise<ExportZougenNichinoResult> {
     return this.zougen.exportZougenNichinoPdf(query, session, req);
+  }
+
+  // ─── ACSMS-API-029-003 — POST /api/v1/report/zougen-nichino/export-excel ──
+  exportZougenNichinoExcel(
+    query: ZougenNichinoQueryDto,
+    session: SessionPayload,
+    req: Request,
+  ): Promise<ExportZougenNichinoResult> {
+    return this.zougen.exportZougenNichinoExcel(query, session, req);
   }
 }

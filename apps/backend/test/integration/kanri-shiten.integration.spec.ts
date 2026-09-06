@@ -266,6 +266,35 @@ describe('KanriShiten module — integration (pg-mem + ioredis-mock)', () => {
       await http().delete(apiUrl('kanri-shiten/1')).set('Cookie', [buildSessionCookie(ctx.app, cookie)]).expect(409);
     });
 
+    it('should return 409 CONFLICT when t_dokusya_rireki has related rows (append-only, no deleted_at, 不具合修正2026-08)', async () => {
+      // t_dokusya_rireki is a full TypeORM-synchronized entity (not stubbed
+      // here) — provide every NOT NULL column so the INSERT succeeds.
+      await ctx.dataSource.query(`
+        INSERT INTO t_dokusya_rireki
+          (dokusya_id, rireki_no, ja_id, kanri_shiten_id, dokusya_shubetsu, tetsuzuki_shurui,
+           shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+           yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1,
+           shiharai_hoho, dokusya_kaishi_date)
+        VALUES
+          (1, 1, 1, 1, 1, 1,
+           'テスト', '太郎', 'テスト', 'タロウ',
+           '1000001', '13', '千代田区', '1-1-1', '0312345678',
+           1, '2026-01-01')
+      `);
+      const cookie = await asAdmin();
+
+      const res = await http()
+        .delete(apiUrl('kanri-shiten/1'))
+        .set('Cookie', [buildSessionCookie(ctx.app, cookie)])
+        .expect(409);
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const rows = await ctx.dataSource.query(
+        `SELECT deleted_at FROM m_kanri_shiten WHERE kanri_shiten_id = 1`,
+      );
+      expect(rows[0].deleted_at).toBeNull();
+    });
+
     it('should return 403 FORBIDDEN when CHUOKAI attempts to delete (画面定義§1.3: NICHINO_ADMIN only)', async () => {
       const cookie = await asChuokai(1);
       // CHUOKAI session is seeded WITHOUT kanri_shiten.delete permission

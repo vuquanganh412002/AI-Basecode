@@ -11,6 +11,7 @@ import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx, extractAuditContext } from '@/common/utils/audit-context';
 import { applyBranchScopeWithJoinAlias } from '@/common/utils/data-scope';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
 import {
   formatDateTimeJst,
@@ -26,7 +27,6 @@ import { DateRangeInvalidException } from './exceptions/date-range-invalid.excep
 import { DateRangeTooLongException } from './exceptions/date-range-too-long.exception';
 import { DateRangeFutureException } from './exceptions/date-range-future.exception';
 
-const SCREEN_NAME = 'ログ参照画面 (ACSMS-SCR-030)';
 const TABLE_NAME = 't_log';
 /**
  * 検索期間の上限（年）。ログ保持期間が 1年 → 5年 へ延びたのに合わせる
@@ -233,7 +233,7 @@ export class LogService {
         logType: LogType.USER_OPERATION,
         accountId: session.account_id,
         jaId: session.ja_id,
-        gamenName: SCREEN_NAME,
+        gamenName: ScreenName.ACSMS_SCR_030,
         operation: AuditOperation.EXPORT_CSV,
         resultStatus: ResultStatus.SUCCESS,
         targetId: null,
@@ -253,7 +253,7 @@ export class LogService {
       return { buffer, filename };
     } catch (err) {
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_030, TABLE_NAME, null),
         AuditOperation.EXPORT_CSV,
         err as Error,
       );

@@ -1,6 +1,18 @@
 import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
 /**
+ * dokusya-sync が失敗のため skip した電子版 `users.id` の再試行キュー1件。
+ * watermark とは別経路（id 直指定）で毎回再試行し、成功/対象外になったら取り除く。
+ */
+export interface FailedSyncRow {
+  denshiKaiinId: number;
+  firstFailedAt: string;
+  lastFailedAt: string;
+  attempts: number;
+  lastError: string;
+}
+
+/**
  * 電子版 → クラウド版 同期バッチのチェックポイント（watermark）テーブル。
  *
  * バッチ（`dokusya-sync`）が「前回どこまで取り込んだか」を1行で保持し、毎回
@@ -13,6 +25,7 @@ import { Column, Entity, PrimaryColumn, UpdateDateColumn } from 'typeorm';
  *                              の最大値。既存レコードの更新検知に使う。
  * 差分は「id が進んだ OR chg_ts が進んだ」の OR で取得する（docs/dokusya-sync-
  * implementation-plan.md §2）。
+ * - `failed_rows`            : 取込失敗で skip した行の再試行キュー（{@link FailedSyncRow}[]）。
  */
 @Entity('t_denshi_sync_state')
 export class DenshiSyncState {
@@ -28,6 +41,9 @@ export class DenshiSyncState {
 
   @Column({ name: 'last_run_at', type: 'timestamptz', nullable: true })
   lastRunAt: Date | null;
+
+  @Column({ name: 'failed_rows', type: 'jsonb', default: () => "'[]'" })
+  failedRows: FailedSyncRow[];
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;

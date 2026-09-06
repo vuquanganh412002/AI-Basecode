@@ -20,9 +20,15 @@ import {
   filterAllowedFields,
   type FieldRestrictionTable,
 } from '@/common/utils/field-restrictions';
-import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
+import {
+  assertNoRelatedRows,
+  type RelatedTableEntry,
+} from '@/common/utils/fk-conflict';
 import { paginate, clampPerPage, type PaginatedResponse } from '@/common/utils/paginate';
 import { pickString, pickBool } from '@/common/utils/pick';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { TODOFUKEN_CODE_NOT_FOUND_MESSAGE } from '@/common/constants/todofuken.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 import { SearchKanriShitenDto, type KanriShitenSearchSortBy } from './dto/search-kanri-shiten.dto';
@@ -33,10 +39,6 @@ import { UpdateKanriShitenDto } from './dto/update-kanri-shiten.dto';
 import { KanriShitenDetailDto } from './dto/kanri-shiten-detail.dto';
 import { toKanriShitenDetail, toKanriShitenListItem } from './kanri-shiten.mapper';
 
-/** 画面別 audit-context ラベル。 */
-const SCREEN_NAME = '管理支店マスタ明細検索画面 (ACSMS-SCR-008)';
-/** フォーム系 (find/create/update) は ACSMS-SCR-009。 */
-const SCREEN_NAME_SCR009 = '管理支店マスタ登録画面 (ACSMS-SCR-009)';
 const TABLE_NAME = 'm_kanri_shiten';
 
 /**
@@ -70,7 +72,14 @@ const SORT_COLUMN_MAP: Record<KanriShitenSearchSortBy, string> = {
  * (ACSMS-SCR-008-api.md §4.4)。一部は未だ TypeORM エンティティでないため
  * assertNoRelatedRows が raw パラメータ化 dataSource.query で統一処理。
  */
-const RELATED_TABLES: readonly string[] = ['m_shiten', 't_dokusya', 'm_account'];
+const RELATED_TABLES: readonly RelatedTableEntry[] = [
+  'm_shiten',
+  't_dokusya',
+  'm_account',
+  // 購読者履歴テーブル — append-only（deleted_at 列なし）。不具合修正2026-08:
+  // 実DBのFK制約(FK_t_dokusya_rireki_m_kanri_shiten)にはあったが漏れていた。
+  { table: 't_dokusya_rireki', hasDeletedAt: false },
+];
 
 @Injectable()
 export class KanriShitenService {
@@ -307,17 +316,17 @@ export class KanriShitenService {
 
         // [audit-log-in-tx] — 同一 tx で atomicity 担保。
         await this.auditLog.logDelete(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_008, TABLE_NAME, id),
           before,
           manager,
         );
       });
 
-      return { message: '削除しました。' };
+      return { message: SuccessMessage.DELETED };
     } catch (err) {
       // [audit-error-log] — rollback 外なので業務書込みが破棄されても trace が残る。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, id),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_008, TABLE_NAME, id),
         AuditOperation.DELETE,
         err as Error,
       );
@@ -366,7 +375,7 @@ export class KanriShitenService {
     const td = await this.todofukenRepo.findOne({
       where: { todofukenCode: dto.todofuken_code },
     });
-    if (!td) throw new BadRequestException('都道府県コードが存在しません。');
+    if (!td) throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
 
     // [code-master-check] — ja_id の存在チェック（m_ja は別モジュール、raw query で
     // cross-module repo 配線を回避）。併せて ja_name を取得し、別 dropdown 呼び出し無しで
@@ -414,7 +423,7 @@ export class KanriShitenService {
 
         // [audit-log-in-tx] — 同一 tx で atomicity 担保。
         await this.auditLog.logCreate(
-          buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, created.kanriShitenId),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_009, TABLE_NAME, created.kanriShitenId),
           created,
           manager,
         );
@@ -423,14 +432,14 @@ export class KanriShitenService {
 
       return {
         ...toKanriShitenDetail(saved, td.todofukenName ?? '', jaName),
-        message: '登録しました。',
+        message: SuccessMessage.CREATED,
       };
     } catch (err) {
       // 競合対策: 同時 CREATE 2 件が両方 pre-check を通過し 2 件目の INSERT が
       // DB UNIQUE INDEX に当たる。その 23505 を 500 でなく clean な 400 に変換。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
-          buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, null),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_009, TABLE_NAME, null),
           AuditOperation.CREATE,
           err as Error,
         );
@@ -438,7 +447,7 @@ export class KanriShitenService {
       }
       // [audit-error-log] — rollback 外。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_009, TABLE_NAME, null),
         AuditOperation.CREATE,
         err as Error,
       );
@@ -482,7 +491,7 @@ export class KanriShitenService {
       const td = await this.todofukenRepo.findOne({
         where: { todofukenCode: filtered.todofuken_code as string },
       });
-      if (!td) throw new BadRequestException('都道府県コードが存在しません。');
+      if (!td) throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
     }
 
     try {
@@ -509,7 +518,7 @@ export class KanriShitenService {
 
         // [audit-log-in-tx] — before/after JSON 付き UPDATE。
         await this.auditLog.logUpdate(
-          buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, id),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_009, TABLE_NAME, id),
           before,
           after,
           manager,
@@ -528,11 +537,11 @@ export class KanriShitenService {
       const ja = await this.jaRepo.findOne({ where: { jaId: before.jaId } });
       return {
         ...toKanriShitenDetail(after ?? before, td?.todofukenName ?? '', ja?.jaName ?? ''),
-        message: '更新しました。',
+        message: SuccessMessage.UPDATED,
       };
     } catch (err) {
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME_SCR009, TABLE_NAME, id),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_009, TABLE_NAME, id),
         AuditOperation.UPDATE,
         err as Error,
       );

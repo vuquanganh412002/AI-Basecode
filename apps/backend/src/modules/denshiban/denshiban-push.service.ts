@@ -139,7 +139,11 @@ export class DenshibanPushService {
       params;
     // 未来適用は batch に委譲（即 push しない）。
     if (immediateJohoDate !== undefined && immediateJohoDate !== todayIsoJst()) {
-      return false;
+      return this.debugSkip(
+        action,
+        after,
+        `未来適用(適用日=${immediateJohoDate} / 当日=${todayIsoJst()})`,
+      );
     }
     if (!(await this.isTarget(manager, after, source, beforeTankaId))) {
       return false;
@@ -160,7 +164,9 @@ export class DenshibanPushService {
     source: ApplyChangeSource,
     beforeTankaId?: number | null,
   ): Promise<boolean> {
-    if (source === 'BATCH') return false;
+    if (source === 'BATCH') {
+      return this.debugSkip('isTarget', after, 'source=BATCH(pull sync の echo)');
+    }
     return this.isPushTarget(manager, after, beforeTankaId);
   }
 
@@ -182,21 +188,45 @@ export class DenshibanPushService {
     after: Dokusya,
     beforeTankaId?: number | null,
   ): Promise<boolean> {
-    if (!this.enabled) return false;
-    if (!isDigitalOrBoth(after.dokusyaShubetsu)) return false;
+    if (!this.enabled) {
+      return this.debugSkip(
+        'isPushTarget',
+        after,
+        'push無効(DENSHIBAN_PUSH_ENABLED=false)',
+      );
+    }
+    if (!isDigitalOrBoth(after.dokusyaShubetsu)) {
+      return this.debugSkip(
+        'isPushTarget',
+        after,
+        `購読者種別が電子版/併読でない(dokusya_shubetsu=${after.dokusyaShubetsu})`,
+      );
+    }
     if (after.tankaId != null) {
       const tanka = await manager.getRepository(Tanka).findOne({
         where: { tankaId: after.tankaId },
         select: { tankaId: true, campaignFlg: true },
       });
-      if (tanka?.campaignFlg) return false;
+      if (tanka?.campaignFlg) {
+        return this.debugSkip(
+          'isPushTarget',
+          after,
+          `campaign単価(tanka_id=${after.tankaId})`,
+        );
+      }
     }
     if (after.denshiKaiinId == null && beforeTankaId != null) {
       const beforeTanka = await manager.getRepository(Tanka).findOne({
         where: { tankaId: beforeTankaId },
         select: { tankaId: true, campaignFlg: true },
       });
-      if (beforeTanka?.campaignFlg) return false;
+      if (beforeTanka?.campaignFlg) {
+        return this.debugSkip(
+          'isPushTarget',
+          after,
+          `更新前がcampaign単価(before_tanka_id=${beforeTankaId}) かつ denshi_kaiin_id=null`,
+        );
+      }
     }
     return true;
   }
@@ -227,6 +257,7 @@ export class DenshibanPushService {
       this.logger.warn(
         `updateUserInfo(${action}) skipped: denshi_kaiin_id is null on dokusya_id=${after.dokusyaId}`,
       );
+      this.debugSkip(action, after, 'denshi_kaiin_id=null(電子版に会員が無い)');
       return null;
     }
 
@@ -268,12 +299,27 @@ export class DenshibanPushService {
       case 'reread':
         return toUpdatePayload(after, jacd, id);
       case 'approve':
-        return toApprovePayload(jacd, id);
+        return toApprovePayload(after, jacd, id);
       case 'unapprove':
-        return toUnapprovePayload(jacd, id);
+        return toUnapprovePayload(after, jacd, id);
       case 'cancel':
         return toCancelPayload(jacd, id, opts.cancelYm ?? '');
     }
+  }
+
+  /**
+   * TODO(debug): 平文payloadログが出ないケースの理由を追うための一時ログ。
+   * push は create/update/reread/approve/unapprove/cancel すべてが
+   * DenshibanApiService.updateUserInfo（暗号化直前で payload を出力）を通るので、
+   * ログが出ない＝ここで対象外と判定され送信自体していない、という切り分けに使う。
+   * 調査が終わったら削除すること。
+   */
+  private debugSkip(action: string, after: Dokusya, reason: string): false {
+    console.log(
+      `[denshiban] push skip(${action}): dokusya_id=${after.dokusyaId} ` +
+        `denshi_kaiin_id=${after.denshiKaiinId ?? 'null'} 理由=${reason}`,
+    );
+    return false;
   }
 
   /**

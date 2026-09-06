@@ -71,6 +71,46 @@ export class HanbaitenController {
     return this.service.findAll(query, req.user);
   }
 
+  // ─── ACSMS-API-018-003 — GET /api/v1/hanbaiten/export ─────────────────
+  //
+  // 静的パス優先のため `@Get(':hanbaiten_id')` より前に宣言（dropdown /
+  // import/template と同じ理由）。
+  @Get('export')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('hanbaiten.view', 'hanbaiten.daiko_input')
+  @ApiOperation({ summary: '販売店明細検索画面 — Excel出力 (ACSMS-API-018-003)' })
+  @ApiResponse({
+    status: 200,
+    description: 'XLSX file (xlsx) as attachment.',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {},
+    },
+  })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  @ApiResponse({ status: 404, description: '出力データがありません。' })
+  @ApiResponse({ status: 409, description: '出力データ件数が5000件を超えています。' })
+  async exportExcel(
+    @Query() query: SearchHanbaitenDto,
+    @Req() req: Request & { user: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const { buffer, filename } = await this.service.exportExcel(
+      query,
+      req.user,
+      req,
+    );
+    // [content-disposition-encoding] import/template と同じ RFC 6266 対応。
+    const utf8Filename = encodeURIComponent(filename);
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="hanbaiten_export.xlsx"; filename*=UTF-8''${utf8Filename}`,
+      'Content-Length': String(buffer.length),
+    });
+    res.send(buffer);
+  }
+
   // ─── ACSMS-API-COMMON — GET /api/v1/hanbaiten/dropdown (ACSMS-SCR-011) ─────
   //
   // 購読者情報登録(ACSMS-SCR-011)フォームの 販売店コード picker が利用。最小射影

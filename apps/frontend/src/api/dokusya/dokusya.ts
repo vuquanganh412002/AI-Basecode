@@ -375,6 +375,28 @@ export async function rejectDokusya(
   return res.data;
 }
 
+/** PUT /api/v1/dokusya/:id/register-tanka のボディ（ACSMS-API-011-007・2026-08 追加）。 */
+export interface RegisterTankaDokusyaBody {
+  tanka_id: number;
+}
+
+/**
+ * PUT /api/v1/dokusya/:id/register-tanka — ACSMS-API-011-007 (2026-08 追加).
+ * denshi_shonin_status=NULL（承認ワークフロー対象外＝電子版クレジットカード・
+ * 併読・電子版無料会員）読者の単価初回登録。denshi_shonin_status は変更せず、
+ * 電子版への同期も行わない — approveDokusya とは別エンドポイント。
+ */
+export async function registerTankaDokusya(
+  dokusyaId: number,
+  body: RegisterTankaDokusyaBody,
+): Promise<DokusyaMutationEnvelope> {
+  const res = await axiosInstance.put<DokusyaMutationEnvelope>(
+    `/api/v1/dokusya/${dokusyaId}/register-tanka`,
+    body,
+  );
+  return res.data;
+}
+
 /** GET /api/v1/dokusya/:id/history — ACSMS-API-011-006. */
 export async function getDokusyaHistory(
   dokusyaId: number,
@@ -407,7 +429,7 @@ export interface DokusyaListItem {
   tetsuzuki_shurui: number;
   renrakusaki_1: string;
   renrakusaki_2: string;
-  /** 配送先連絡先１ — haitatsu_renrakusaki_1（空文字許容）。 */
+  /** 配送先TEL1 — haitatsu_renrakusaki_1（空文字許容）。 */
   haitatsu_renrakusaki_1: string;
   /** 配達先氏名 — haitatsu_shimei_sei + haitatsu_shimei_mei（連結・trim）。 */
   haitatsu_full_name: string;
@@ -458,6 +480,12 @@ export interface DokusyaSearchParams {
    * false=失効単価を参照する購読者のみ、省略=両方（送らない）。
    */
   active_tanka_flg?: boolean;
+  /**
+   * 購読者層分類（顧客CR 2026-08-24）。値は m_code DOKUSYASO_BUNRUI の
+   * コード（文字列、例 '0'）。BE は t_dokusya.dokusyaso_bunrui（CSV）に
+   * このコードを含む行を検索する（複数分類を同時に持つ購読者にもヒット）。
+   */
+  dokusyaso_bunrui?: string;
   page?: number;
   per_page?: number;
   sort_by?: string;
@@ -849,11 +877,20 @@ export interface ImportDokusyaResult {
     updated_count: number;
     cancelled_count: number;
     skipped_count: number;
+    /**
+     * 書込み段で失敗した行数（不具合修正2026-08）。電子版は1行=1txのため
+     * 部分成功があり得る（denshiban 側の孤児レコード回避のため — .claude
+     * rules 外だが dokusya-import.service.ts#importExcelPerRow 参照）。
+     * 紙版は全行1txのため常に0。
+     */
+    failed_count: number;
     rireki_count: number;
     /** ISO8601. */
     imported_at: string;
   };
   message: string;
+  /** 書込み段で失敗した行の詳細（電子版のみ発生しうる）。紙版は常に省略。 */
+  row_errors?: Array<{ row: number; message: string }>;
 }
 
 /** GET /api/v1/dokusya/import/template — ACSMS-API-016-001（バイナリ XLSX）。 */

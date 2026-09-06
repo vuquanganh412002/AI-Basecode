@@ -237,6 +237,16 @@ describe('DokusyaReplaceHanbaitenView — initial render (機能定義 1.x)', ()
     expect(getHanbaitenDropdown).toHaveBeenCalled();
   });
 
+  it('should exclude the dummy hanbaiten (9999999999) from both 配達販売店 and 置換先配達販売店 dropdowns (紙版限定画面, 不具合修正2026-08)', async () => {
+    await renderView();
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    const calls = vi.mocked(getHanbaitenDropdown).mock.calls;
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const [query] of calls) {
+      expect(query).toMatchObject({ dummy: 'exclude' });
+    }
+  });
+
   it('should NOT call searchDokusyaForReplace on mount (顧客要件 2026-07 — no auto-load; requires 適用日 + 検索)', async () => {
     const { searchDokusyaForReplace } = await import('@/api/dokusya/dokusya');
     vi.mocked(searchDokusyaForReplace).mockClear();

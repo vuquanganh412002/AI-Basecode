@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { downloadBlob } from '@/utils/download';
+import { downloadBlob, parseContentDispositionFilename } from '@/utils/download';
 
 describe('downloadBlob', () => {
   afterEach(() => {
@@ -45,5 +45,37 @@ describe('downloadBlob', () => {
 
     createElement.mockRestore();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('parseContentDispositionFilename', () => {
+  it('decodes an RFC5987 filename*=UTF-8\'\'… (multibyte) filename', () => {
+    const out = parseContentDispositionFilename(
+      "attachment; filename*=UTF-8''%E5%8F%A3%E5%BA%A7%E6%8C%AF%E6%9B%BF.csv",
+    );
+    expect(out).toBe('口座振替.csv');
+  });
+
+  it('falls back to the plain filename="…" when no RFC5987 form is present', () => {
+    const out = parseContentDispositionFilename('attachment; filename="sample.csv"');
+    expect(out).toBe('sample.csv');
+  });
+
+  it('falls through to the plain form when the RFC5987 percent-encoding is malformed', () => {
+    // "%" alone is not valid percent-encoding — decodeURIComponent throws.
+    const out = parseContentDispositionFilename(
+      "attachment; filename*=UTF-8''%E5%8F%A3%; filename=\"fallback.csv\"",
+    );
+    expect(out).toBe('fallback.csv');
+  });
+
+  it('returns the default fallback ("download") when neither form is present', () => {
+    const out = parseContentDispositionFilename('attachment');
+    expect(out).toBe('download');
+  });
+
+  it('returns a custom fallback when provided and neither form is present', () => {
+    const out = parseContentDispositionFilename('attachment', 'custom.zip');
+    expect(out).toBe('custom.zip');
   });
 });

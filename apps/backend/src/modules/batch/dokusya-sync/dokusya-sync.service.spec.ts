@@ -89,6 +89,14 @@ interface Opts {
     dokusyaChushiDate: string | null;
     kaiyakuFlg: boolean;
   } | null;
+  /**
+   * findBefore（本日時点で carry-forward できる直前有効履歴行）の
+   * QueryBuilder.getOne() が返す行。existing がある場合のみ参照される。
+   * 既定は「通常の既存読者には過去の有効履歴行がある」を表すダミー行
+   * （= 更新skipにならない）。履歴が全て未来日のケースをテストするときは
+   * 明示的に null を渡す。
+   */
+  effectiveBeforeRow?: { dokusyaRirekiId: number } | null;
   lockLocked?: boolean;
   fullSync?: boolean;
 }
@@ -99,6 +107,7 @@ function buildService(opts: Opts = {}) {
     existing = null,
     emailMatch = null,
     activeKaiyakuRow = null,
+    effectiveBeforeRow = { dokusyaRirekiId: 1 },
     lockLocked = true,
     fullSync = false,
     hanbaitenRows = HANBAITEN_ROWS,
@@ -111,15 +120,33 @@ function buildService(opts: Opts = {}) {
     orderBy: jest.fn().mockReturnThis(),
     getOne: jest.fn().mockResolvedValue(emailMatch),
   };
-  // #57986: loadActiveKaiyakuRow（createQueryBuilder(DokusyaRireki, 'r')）用。
+  // #57986: loadActiveKaiyakuRow / findBefore（どちらも
+  // createQueryBuilder(DokusyaRireki, 'r') 経由）用。両者は andWhere の述語文字列
+  // で区別する（findBefore だけが 'joho_henko_tekiyo_date' を条件に含む）。
+  let lastAndWhereCondition = '';
   const kaiyakuQbMock = {
-    where: jest.fn().mockReturnThis(),
-    andWhere: jest.fn().mockReturnThis(),
-    orderBy: jest.fn().mockReturnThis(),
-    addOrderBy: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    getOne: jest.fn().mockResolvedValue(activeKaiyakuRow),
+    where: jest.fn(),
+    andWhere: jest.fn(),
+    orderBy: jest.fn(),
+    addOrderBy: jest.fn(),
+    limit: jest.fn(),
+    getOne: jest.fn(),
   };
+  kaiyakuQbMock.where.mockReturnValue(kaiyakuQbMock);
+  kaiyakuQbMock.andWhere.mockImplementation((condition: string) => {
+    lastAndWhereCondition = condition;
+    return kaiyakuQbMock;
+  });
+  kaiyakuQbMock.orderBy.mockReturnValue(kaiyakuQbMock);
+  kaiyakuQbMock.addOrderBy.mockReturnValue(kaiyakuQbMock);
+  kaiyakuQbMock.limit.mockReturnValue(kaiyakuQbMock);
+  kaiyakuQbMock.getOne.mockImplementation(() =>
+    Promise.resolve(
+      lastAndWhereCondition.includes('joho_henko_tekiyo_date')
+        ? effectiveBeforeRow
+        : activeKaiyakuRow,
+    ),
+  );
   const managerMock = {
     findOne: jest.fn().mockResolvedValue(existing),
     update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -254,6 +281,36 @@ describe('DokusyaSyncService', () => {
     expect(input.dokusyaId).toBe(77);
   });
 
+  // 2026-08: 既存読者だが履歴が全て未来日（本日時点で findBefore が null）の場合、
+  // shoki_dokusya_kaishi_date を carry-forward できず NOT NULL 制約に落ちるため、
+  // 例外にせず skip する（denshi_kaiin_id=327402 ほか、実データで確認）。
+  it('UPDATE: skips (does not call applyChange) when the existing dokusya has no effective history row as of today (all history is future-dated)', async () => {
+    const { service } = buildService({
+      existing: { dokusyaId: 77 },
+      effectiveBeforeRow: null,
+    });
+    await service.run();
+
+    expect(mockApplyChange).not.toHaveBeenCalled();
+  });
+
+  it('CANCEL (status=9): also skips when the existing dokusya has no effective history row as of today', async () => {
+    const { service } = buildService({
+      existing: { dokusyaId: 77 },
+      effectiveBeforeRow: null,
+      deltaRows: [
+        buildUser({
+          status: 9,
+          payment_end_ym: FAR_FUTURE_PAYMENT_YM,
+        }),
+      ],
+    });
+    await service.run();
+
+    expect(mockApplyChange).not.toHaveBeenCalled();
+    expect(mockInsertScheduledKaiyaku).not.toHaveBeenCalled();
+  });
+
   // 顧客要件 2026-08 追補: denshi_kaiin_id で見つからない場合の email フォールバック
   // 照合 — cloud 側で先に手動登録された電子版/併読読者（campaign 単価などで
   // denshi_kaiin_id が未設定のまま残っている行）との二重登録を防ぐ。
@@ -325,7 +382,12 @@ describe('DokusyaSyncService', () => {
       });
       await service.run();
 
-      expect(managerMock.createQueryBuilder).not.toHaveBeenCalled();
+      // alias 'd'（Dokusya, email 照合）は呼ばれない。alias 'r'（findBefore の
+      // carry-forward チェック）は existing がある限り呼ばれるので対象外。
+      expect(managerMock.createQueryBuilder).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'd',
+      );
     });
   });
 
@@ -477,7 +539,7 @@ describe('DokusyaSyncService', () => {
         expect(applyChangeOrder).toBeLessThan(insertKaiyakuOrder);
       });
 
-      it('applyChange へ渡す values に tetsuzuki_shurui / kaiyaku_flg を含めない（前回値を carry-forward させる）', async () => {
+      it('applyChange へ渡す values に tetsuzuki_shurui / kaiyaku_flg / shoki_dokusya_kaishi_date を含めない（前回値を carry-forward させる）', async () => {
         const { service } = buildService({
           existing: { dokusyaId: 88, dokusyaChushiDate: null, dokusyaShubetsu: 2 },
           deltaRows: [buildUser({ status: 9, payment_end_ym: FAR_FUTURE_PAYMENT_YM })],
@@ -487,6 +549,7 @@ describe('DokusyaSyncService', () => {
         const input = mockApplyChange.mock.calls[0][1];
         expect('tetsuzukiShurui' in input.values).toBe(false);
         expect('kaiyakuFlg' in input.values).toBe(false);
+        expect('shokiDokusyaKaishiDate' in input.values).toBe(false);
       });
 
       it('does NOT soft-delete master', async () => {
@@ -733,12 +796,12 @@ describe('DokusyaSyncService', () => {
 
   // 2026-07-29 実データ検証で判明した恒久 miss の再発防止。単純 max() だと失敗行より
   // 後ろの成功行が watermark を追い越し、失敗行が二度と差分に乗らなくなる。
-  it('does NOT advance the watermark past a failed row (later successes must not overtake it)', async () => {
+  it('advances the watermark past a failed row and queues it for retry (does not block later rows)', async () => {
     const { service, stateRepo } = buildService({
       deltaRows: [
         buildUser({ id: 1001, chg_ts: '2026-04-01 00:00:00' }),
         buildUser({ id: 1002, chg_ts: '2026-04-02 00:00:00' }), // ここで失敗
-        buildUser({ id: 1003, chg_ts: '2026-04-03 00:00:00' }), // 後続は成功
+        buildUser({ id: 1003, chg_ts: '2026-04-03 00:00:00' }), // 後続も処理される（ブロックしない）
       ],
     });
     mockApplyChange
@@ -748,9 +811,14 @@ describe('DokusyaSyncService', () => {
 
     await service.run();
 
+    // 失敗行(1002)も skip 扱いで前進し、後続(1003)まで読み切る。
+    expect(mockApplyChange).toHaveBeenCalledTimes(3);
     const patch = stateRepo.update.mock.calls[0][1];
-    // 失敗した 1002 の手前（1001）で止まる → 次回実行が 1002 から読み直す。
-    expect(String(patch.lastSourceId)).toBe('1001');
+    expect(String(patch.lastSourceId)).toBe('1003');
+    // 失敗行は再試行キューへ積まれ、次回 id 直指定で再試行される。
+    expect(patch.failedRows).toEqual([
+      expect.objectContaining({ denshiKaiinId: 1002, attempts: 1 }),
+    ]);
   });
 
   it('skips (not fails) a CREATE row that has no 購読開始日 at all', async () => {
@@ -800,6 +868,19 @@ describe('DokusyaSyncService', () => {
     await service.run();
     const input = mockApplyChange.mock.calls[0][1];
     expect(input.values.shokiDokusyaKaishiDate).toBe('2026-01-05');
+  });
+
+  it('UPDATE never overwrites shoki_dokusya_kaishi_date even when activated_at changed (不具合修正2026-08: 初回購読開始日は不変)', async () => {
+    const { service } = buildService({
+      existing: { dokusyaId: 77 },
+      // 電子版側で activated_at が変わった行（reread 等）— 初回値まで動いてはいけない。
+      deltaRows: [buildUser({ activated_at: '2026-08-01 00:00:00' })],
+    });
+    await service.run();
+    const input = mockApplyChange.mock.calls[0][1];
+    expect('shokiDokusyaKaishiDate' in input.values).toBe(false);
+    // 現購読開始日(dokusyaKaishiDate)は従来どおり activated_at 追随のまま。
+    expect(input.values.dokusyaKaishiDate).toBe('2026-08-01');
   });
 
   it('UPDATE preserves cloud-owned tanka_id (never overwrites — omitted from values)', async () => {
@@ -916,7 +997,7 @@ describe('DokusyaSyncService', () => {
   // 差分条件は `id > wId OR chg_ts > wTs` の両方 strict。同じ chg_ts の途中で中断した
   // まま chg_ts だけ進めると、そのグループの未処理行は id でも chg_ts でも watermark
   // 以下になり二度と差分に乗らない（別グループの大きい id に負けるため）。
-  it('同一 chg_ts グループの途中で中断したら watermark をそのグループの手前で止める', async () => {
+  it('同一 chg_ts グループの途中で1件失敗しても、そのグループごと前進する（失敗行は再試行キューへ）', async () => {
     const { service, stateRepo } = buildService({
       deltaRows: [
         buildUser({ id: 9999, chg_ts: '2026-04-01 00:00:00' }), // 別グループ・大きい id
@@ -932,11 +1013,146 @@ describe('DokusyaSyncService', () => {
     await service.run();
 
     const patch = stateRepo.update.mock.calls[0][1];
-    // 04-02 グループは丸ごと未コミット → 次回 `chg_ts > 04-01` で id=5,6 とも再取得される。
+    // 失敗した id=6 も skip 扱いで前進する（もう watermark で守らない）→
+    // 04-02 グループ丸ごとコミットされる（safeTs は 04-02 まで進む）。
+    // safeId は「これまでの最大 id」なので、先行グループの id=9999 より小さい
+    // 6 では前進しない（既存仕様どおり）— id=6 自体は再試行キューに積まれる。
     expect(String(patch.lastSourceId)).toBe('9999');
     expect((patch.lastSourceUpdatedAt as Date).getTime()).toBe(
-      new Date('2026-04-01 00:00:00').getTime(),
+      new Date('2026-04-02 00:00:00').getTime(),
     );
+    expect(patch.failedRows).toEqual([
+      expect.objectContaining({ denshiKaiinId: 6, attempts: 1 }),
+    ]);
+  });
+
+  // 2026-08 運用要望 — 失敗行は block せず skip + 再試行キュー（id 直指定）へ。
+  describe('failed-row retry queue (t_denshi_sync_state.failed_rows)', () => {
+    /** watermark 経路（fetchPage）を空で通すための最小セットアップ。 */
+    function buildServiceWithFailedRows(
+      failedRows: unknown[],
+      retryRowById: (id: number) => DenshiUserRow[],
+    ) {
+      const built = buildService({ deltaRows: [] });
+      built.stateRepo.findOne.mockResolvedValueOnce({
+        batchName: 'dokusya-sync',
+        lastSourceId: '0',
+        lastSourceUpdatedAt: new Date(0),
+        failedRows,
+      });
+      built.denshibanQuery.mockImplementation((sql: string, params: unknown[]) => {
+        if (sql.includes('id = ?')) {
+          return Promise.resolve(retryRowById(Number(params[0])));
+        }
+        return Promise.resolve([]); // fetchPage: 差分なし
+      });
+      return built;
+    }
+
+    it('retries a queued row by id and removes it from the queue on success', async () => {
+      const { service, stateRepo } = buildServiceWithFailedRows(
+        [
+          {
+            denshiKaiinId: 2002,
+            firstFailedAt: '2026-08-22T01:00:00.000Z',
+            lastFailedAt: '2026-08-22T01:00:00.000Z',
+            attempts: 1,
+            lastError: 'boom',
+          },
+        ],
+        (id) => (id === 2002 ? [buildUser({ id: 2002 })] : []),
+      );
+      mockApplyChange.mockResolvedValueOnce({
+        dokusyaId: 20,
+        insertedRirekiIds: [1],
+      });
+
+      await service.run();
+
+      expect(mockApplyChange).toHaveBeenCalledTimes(1);
+      const patch = stateRepo.update.mock.calls[0][1];
+      expect(patch.failedRows).toEqual([]);
+    });
+
+    it('drops a queued row when it no longer meets the eligibility filter (fetchOne finds nothing)', async () => {
+      const { service, stateRepo } = buildServiceWithFailedRows(
+        [
+          {
+            denshiKaiinId: 2003,
+            firstFailedAt: '2026-08-22T01:00:00.000Z',
+            lastFailedAt: '2026-08-22T01:00:00.000Z',
+            attempts: 1,
+            lastError: 'boom',
+          },
+        ],
+        () => [], // もう対象外（削除/eligibility 変化）
+      );
+
+      await service.run();
+
+      expect(mockApplyChange).not.toHaveBeenCalled();
+      const patch = stateRepo.update.mock.calls[0][1];
+      expect(patch.failedRows).toEqual([]);
+    });
+
+    it('keeps a queued row and increments attempts when the retry fails again', async () => {
+      const { service, stateRepo } = buildServiceWithFailedRows(
+        [
+          {
+            denshiKaiinId: 2004,
+            firstFailedAt: '2026-08-22T01:00:00.000Z',
+            lastFailedAt: '2026-08-22T01:00:00.000Z',
+            attempts: 1,
+            lastError: 'boom',
+          },
+        ],
+        (id) => (id === 2004 ? [buildUser({ id: 2004 })] : []),
+      );
+      mockApplyChange.mockRejectedValueOnce(new Error('still broken'));
+
+      await service.run();
+
+      const patch = stateRepo.update.mock.calls[0][1];
+      expect(patch.failedRows).toEqual([
+        expect.objectContaining({
+          denshiKaiinId: 2004,
+          attempts: 2,
+          lastError: 'still broken',
+        }),
+      ]);
+    });
+
+    it('fullSync=true skips the explicit retry (redundant with the full scan) but still drops a resolved id via the normal success path', async () => {
+      const { service, stateRepo, denshibanQuery } = buildService({
+        fullSync: true,
+        deltaRows: [buildUser({ id: 2005 })],
+        existing: null,
+      });
+      stateRepo.findOne.mockResolvedValueOnce({
+        batchName: 'dokusya-sync',
+        lastSourceId: '0',
+        lastSourceUpdatedAt: new Date(0),
+        failedRows: [
+          {
+            denshiKaiinId: 2005,
+            firstFailedAt: '2026-08-22T01:00:00.000Z',
+            lastFailedAt: '2026-08-22T01:00:00.000Z',
+            attempts: 3,
+            lastError: 'boom',
+          },
+        ],
+      });
+
+      await service.run();
+
+      // retryFailedRows は呼ばれない → id 直指定（'id = ?'）のクエリは発行されない。
+      const sqlCalls = denshibanQuery.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(sqlCalls.some((s) => s.includes('id = ?'))).toBe(false);
+
+      // 全件走査で同じ id が成功したので、キューからは取り除かれる。
+      const patch = stateRepo.update.mock.calls[0][1];
+      expect(patch.failedRows).toEqual([]);
+    });
   });
 
   // 顧客要望 2026-08 — 行単位ではなく「1 実行 1 行」の実行サマリを t_log へ残す。
@@ -961,6 +1177,37 @@ describe('DokusyaSyncService', () => {
       );
       // 業務トランザクションとは別に書く（manager を渡さない）。
       expect(auditLog.logOperation.mock.calls[0][1]).toBeUndefined();
+    });
+
+    it('includes the failed denshi_kaiin_id(s) in the t_log row when a row fails', async () => {
+      const { service, auditLog } = buildService({
+        existing: null,
+        deltaRows: [buildUser({ id: 3001 })],
+      });
+      mockApplyChange.mockRejectedValueOnce(new Error('boom'));
+
+      await service.run();
+
+      const arg = auditLog.logOperation.mock.calls[0][0];
+      const after = JSON.parse(arg.afterValue);
+      expect(after.failed).toBe(1);
+      expect(after.pending_retry).toBe(1);
+      // denshi_kaiin_id のみ（肥大化防止のためエラー内容は乗せない — 原因は
+      // t_denshi_sync_state.failed_rows / CloudWatch record_error を参照）。
+      expect(after.failed_denshi_kaiin_ids).toEqual([3001]);
+    });
+
+    it('reports an empty failed_denshi_kaiin_ids array when the run has no failures', async () => {
+      const { service, auditLog } = buildService({
+        existing: null,
+        deltaRows: [buildUser({ id: 1 })],
+      });
+
+      await service.run();
+
+      const after = JSON.parse(auditLog.logOperation.mock.calls[0][0].afterValue);
+      expect(after.failed).toBe(0);
+      expect(after.failed_denshi_kaiin_ids).toEqual([]);
     });
   });
 });

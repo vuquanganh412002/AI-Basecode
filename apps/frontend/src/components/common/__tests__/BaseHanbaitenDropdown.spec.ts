@@ -53,6 +53,23 @@ describe('BaseHanbaitenDropdown', () => {
     );
   });
 
+  it('does NOT pass dummy param when omitted (default: unfiltered)', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    await mountDropdown();
+    await flushPromises();
+    const lastCall = vi.mocked(getHanbaitenDropdown).mock.calls.at(-1)?.[0];
+    expect(lastCall).not.toHaveProperty('dummy');
+  });
+
+  it('passes dummy=exclude when set (紙版限定画面, 不具合修正2026-08)', async () => {
+    const { getHanbaitenDropdown } = await import('@/api/hanbaiten/hanbaiten');
+    await mountDropdown({ dummy: 'exclude' });
+    await flushPromises();
+    expect(getHanbaitenDropdown).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dummy: 'exclude' }),
+    );
+  });
+
   it('composes label as `${code} ${name}`', async () => {
     const wrapper = await mountDropdown();
     await flushPromises();

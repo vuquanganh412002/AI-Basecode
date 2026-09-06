@@ -13,6 +13,8 @@ import {
 } from '@/common/exceptions/common.exceptions';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { paginate, type PaginatedResponse } from '@/common/utils/paginate';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { CodeService } from '@/modules/code/code.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
@@ -41,7 +43,6 @@ import {
   parseDatetimeMinutesJst,
 } from '@/common/utils/datetime';
 
-const SCREEN_NAME = 'お知らせ一覧画面 (ACSMS-SCR-031)';
 const TABLE_NAME = 't_oshirase';
 /** 「新着」バッジを表示する期間（公開起点から N 日以内なら is_new=true）。 */
 const NEW_BADGE_DAYS = 7;
@@ -450,7 +451,7 @@ export class OshiraseService {
         });
         const created = await manager.save(Oshirase, payload);
         await this.auditLog!.logCreate(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, Number(created.oshiraseId)),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, Number(created.oshiraseId)),
           created,
           manager,
         );
@@ -458,7 +459,7 @@ export class OshiraseService {
       });
     } catch (err) {
       await this.auditLog!.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, null),
         AuditOperation.CREATE,
         err as Error,
       );
@@ -467,7 +468,7 @@ export class OshiraseService {
 
     return {
       data: toOshiraseDetail(saved),
-      message: '登録しました。',
+      message: SuccessMessage.CREATED,
     };
   }
 
@@ -573,7 +574,7 @@ export class OshiraseService {
         const saved = await manager.save(Oshirase, merged);
 
         await this.auditLog!.logUpdate(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, Number(saved.oshiraseId)),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, Number(saved.oshiraseId)),
           before,
           saved,
           manager,
@@ -582,7 +583,7 @@ export class OshiraseService {
       });
     } catch (err) {
       await this.auditLog!.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, oshiraseId),
         AuditOperation.UPDATE,
         err as Error,
       );
@@ -591,7 +592,7 @@ export class OshiraseService {
 
     return {
       data: toOshiraseDetail(updated),
-      message: '更新しました。',
+      message: SuccessMessage.UPDATED,
     };
   }
 
@@ -624,21 +625,21 @@ export class OshiraseService {
 
         await manager.softDelete(Oshirase, oshiraseId);
         await this.auditLog!.logDelete(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, oshiraseId),
           before,
           manager,
         );
       });
     } catch (err) {
       await this.auditLog!.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, oshiraseId),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_031, TABLE_NAME, oshiraseId),
         AuditOperation.DELETE,
         err as Error,
       );
       throw err;
     }
 
-    return { message: '削除しました。' };
+    return { message: SuccessMessage.DELETED };
   }
 
   /**

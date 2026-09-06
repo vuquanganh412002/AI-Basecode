@@ -25,9 +25,11 @@ import {
   type ImportHanbaitenRow,
 } from '@/api/hanbaiten/hanbaiten';
 import { downloadBlob } from '@/utils/download';
+import BaseImportErrorPanel from '@/components/common/BaseImportErrorPanel.vue';
+import BaseImportPreviewTable from '@/components/common/BaseImportPreviewTable.vue';
 
 /**
- * 23列の物理名リスト — 順序は api.md §テンプレートファイル仕様に厳密準拠。
+ * 24列の物理名リスト — 順序は api.md §テンプレートファイル仕様に厳密準拠。
  * この配列の index N が下の JP ヘッダ index N と checkbox `value` に対応する。
  */
 const PHYSICAL_COLUMNS = [
@@ -35,6 +37,7 @@ const PHYSICAL_COLUMNS = [
   'hanbaiten_name',
   'hanbaiten_name_kana',
   'torihikisaki_no',
+  'todofuken_code',
   'yubin_no',
   'address',
   'tel',
@@ -63,6 +66,7 @@ const JP_HEADERS: Record<PhysicalColumn, string> = {
   hanbaiten_name: '販売店名称',
   hanbaiten_name_kana: '販売店名称（カナ）',
   torihikisaki_no: 'インボイス番号',
+  todofuken_code: '都道府県コード',
   yubin_no: '郵便番号',
   address: '住所',
   tel: '電話番号',
@@ -233,21 +237,20 @@ const TOP_LEVEL_FIELD_LABELS: Record<string, string> = {
   selected_columns: '取込列',
 };
 
-/** エラーの `field`（列ヘッダ or トップレベル名）の日本語ラベル。 */
-function errorFieldLabel(e: ImportError): string {
-  if (!e.field) return '';
-  return (
-    JP_HEADERS[e.field as PhysicalColumn] ??
-    TOP_LEVEL_FIELD_LABELS[e.field] ??
-    e.field
-  );
-}
+/** BaseImportErrorPanel へ渡す field→日本語ラベルの対応表（列 + トップレベル）。 */
+const IMPORT_ERROR_FIELD_LABELS: Record<string, string> = {
+  ...JP_HEADERS,
+  ...TOP_LEVEL_FIELD_LABELS,
+};
 
 // ─── 派生 ─────────────────────────────────────────────────────────────
 
 const hasFile = computed(() => parsedRows.value.length > 0);
 
 const previewVisible = computed(() => hasFile.value);
+
+/** プレビュー表（BaseImportPreviewTable）への参照 — 新規ファイル選択時にページをリセットする。 */
+const previewTableRef = ref<{ resetPage: () => void } | null>(null);
 
 /** プレビュー表が描画する列 — チェック済み。 */
 const previewColumns = computed<PhysicalColumn[]>(() =>
@@ -282,6 +285,7 @@ function isExcelFileName(name: string): boolean {
 function rejectInvalidFile(): void {
   message.error(FILE_FORMAT_ERROR_MSG);
   parsedRows.value = [];
+  previewTableRef.value?.resetPage();
   fileName.value = '';
   importErrors.value = [];
   resetFileInput();
@@ -334,6 +338,8 @@ async function onFileChange(event: Event): Promise<void> {
       }
       return out;
     });
+    // 新規ファイルは常に1ページ目から表示する。
+    previewTableRef.value?.resetPage();
   } catch {
     rejectInvalidFile();
   }
@@ -439,13 +445,13 @@ async function runImport(): Promise<void> {
       (code === 'VALIDATION_ERROR' || code === 'IMPORT_VALIDATION_ERROR') &&
       detail.length > 0
     ) {
-      // 行/項目単位の詳細はフォーム下の常設パネルに描画 — 1トーストに詰めない
-      // （antd は '\n' を潰しスクロール不能な1行になる）。interceptor は両コードで
-      // 沈黙（VALIDATION_ERROR は useApiForm 用でこの非フォーム画面は使わない、
-      // IMPORT_VALIDATION_ERROR は VIEW_HANDLED_CODES）ので view が表示を持つ。
-      // 短い要約トーストでパネルへ誘導する。
+      // 行/項目単位の詳細はフォーム下の常設パネルに描画する（不具合修正2026-08 —
+      // 以前はここで要約トーストも出しており、パネルと二重表示になっていた。
+      // 購読者Excel取込(DokusyaImportView)と同じくパネルのみで表示する）。
+      // interceptor は両コードで沈黙（VALIDATION_ERROR は useApiForm 用でこの
+      // 非フォーム画面は使わない、IMPORT_VALIDATION_ERROR は VIEW_HANDLED_CODES）
+      // ので view がパネル表示を持つ。
       importErrors.value = detail;
-      message.error(`取込に失敗しました。${detail.length}件のエラーがあります。`);
     } else if (code === 'VALIDATION_ERROR') {
       // errors[] 配列なしの VALIDATION_ERROR — interceptor は沈黙のため
       // body message にフォールバック。
@@ -481,13 +487,6 @@ function onColumnToggle(col: PhysicalColumn, el: HTMLInputElement): void {
     return;
   }
   selected[col] = el.checked;
-}
-
-// ヘルパー: プレビューセル値を描画（boolean → ✓/空, null → 空）。
-function renderCell(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'boolean') return value ? '✓' : '';
-  return String(value);
 }
 </script>
 
@@ -679,106 +678,20 @@ function renderCell(value: unknown): string {
         </div>
 
         <!-- プレビュー -->
-        <div
+        <BaseImportPreviewTable
           v-if="previewVisible"
-          data-test="preview-section"
-          class="space-y-2"
-        >
-          <div class="flex items-center justify-between">
-            <p class="text-sm font-semibold text-text-main">
-              <span class="text-primary">◆</span>
-              取込データプレビュー
-              <span class="text-xs font-normal text-text-secondary ml-2">
-                {{ parsedRows.length }}件
-              </span>
-            </p>
-          </div>
-          <div
-            class="overflow-x-auto border border-border rounded"
-          >
-            <table class="w-full text-sm border-collapse min-w-max">
-              <thead>
-                <tr class="bg-surface-card-subtle text-left">
-                  <th
-                    v-for="col in previewColumns"
-                    :key="col"
-                    class="px-3 py-2 text-sm font-semibold text-text-main border-b border-border"
-                  >
-                    {{ JP_HEADERS[col] }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="(row, rowIdx) in parsedRows"
-                  :key="rowIdx"
-                  class="border-b border-border"
-                >
-                  <td
-                    v-for="col in previewColumns"
-                    :key="col"
-                    class="px-3 py-2 text-sm text-text-main"
-                  >
-                    {{ renderCell(row[col]) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+          ref="previewTableRef"
+          :rows="parsedRows"
+          :columns="previewColumns"
+          :header-labels="JP_HEADERS"
+        />
       </form>
 
-      <!-- 取込エラー — 行/項目単位の常設スクロールパネル -->
-      <div
-        v-if="importErrors.length > 0"
-        data-test="import-error-panel"
-        class="mt-4 border border-error rounded overflow-hidden"
-      >
-        <div class="px-4 py-2.5 bg-error-subtle flex items-center gap-2">
-          <span class="material-icons text-error text-[18px]">error_outline</span>
-          <span class="text-sm font-semibold text-error">
-            取込エラー（{{ importErrors.length }}件）
-          </span>
-        </div>
-        <div class="max-h-72 overflow-y-auto">
-          <table class="w-full text-sm border-collapse">
-            <thead>
-              <tr class="bg-surface-card-subtle text-left">
-                <th
-                  class="px-4 py-2 font-semibold text-text-main border-b border-border w-20"
-                >
-                  行
-                </th>
-                <th
-                  class="px-4 py-2 font-semibold text-text-main border-b border-border w-48"
-                >
-                  項目
-                </th>
-                <th
-                  class="px-4 py-2 font-semibold text-text-main border-b border-border"
-                >
-                  メッセージ
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="(e, i) in importErrors"
-                :key="i"
-                class="border-b border-border"
-              >
-                <td class="px-4 py-2 text-text-main whitespace-nowrap">
-                  {{ e.row != null ? `${e.row}行目` : '—' }}
-                </td>
-                <td class="px-4 py-2 text-text-main">
-                  {{ errorFieldLabel(e) || '—' }}
-                </td>
-                <td class="px-4 py-2 text-error">{{ e.message }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <!-- 取込エラー — 行/項目単位の常設スクロールパネル（共通コンポーネント） -->
+      <BaseImportErrorPanel
+        :errors="importErrors"
+        :field-labels="IMPORT_ERROR_FIELD_LABELS"
+      />
 
       <!-- 取込結果件数（緑バナー） — dokusya と同じ表示 -->
       <div

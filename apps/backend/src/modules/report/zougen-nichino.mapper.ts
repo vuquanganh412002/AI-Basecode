@@ -206,6 +206,37 @@ function classifyNichino(
 }
 
 /**
+ * 同一 hanbaiten_id の複数行を1行へ集約する（顧客CR #59108 — 片岡様フィードバック
+ * 2026-08-24）。`addRow()` は購読者(dokusya_id)ごとに行を push するため、同日に
+ * 異なる購読者の増減が同一販売店へ重なると（例: 新規1件+解約1件が同じ「木場深川」）、
+ * 集約前は販売店が複数行に分かれて表示されてしまう（新部数だけ見ると誤って
+ * 0部に見えるなど誤解を招く）。現在部数/増部数/減部数/新部数は合算し、
+ * diff_mark はいずれかの行が true なら true にする。表示専用の列（委託欄/
+ * 販売店コード/販売店名）は同一 hanbaiten_id なら常に同じ値のため先勝ちでよい。
+ * `report.total` は addRow() 側で既に全行分を合算済みのため、ここでは触らない。
+ */
+function mergeRowsByHanbaiten(
+  rows: ZougenNichinoReportRow[],
+): ZougenNichinoReportRow[] {
+  const byHanbaiten = new Map<number, ZougenNichinoReportRow>();
+  const order: number[] = [];
+  for (const row of rows) {
+    const existing = byHanbaiten.get(row.hanbaiten_id);
+    if (!existing) {
+      byHanbaiten.set(row.hanbaiten_id, { ...row });
+      order.push(row.hanbaiten_id);
+      continue;
+    }
+    existing.genzai_busu += row.genzai_busu;
+    existing.zou_busu += row.zou_busu;
+    existing.gen_busu += row.gen_busu;
+    existing.shin_busu += row.shin_busu;
+    existing.diff_mark = existing.diff_mark || row.diff_mark;
+  }
+  return order.map((id) => byHanbaiten.get(id) as ZougenNichinoReportRow);
+}
+
+/**
  * 管理支店ID 単位で 1 帳票。各購読者(dokusya_id)の同日複数履歴を**累計**してから
  * 現在部数 / 増部数 / 減部数 / 新部数 を算出する（SCR-028 と同方針。抽出は
  * `joho_henko_tekiyo_date = :tekiyo_date`）。
@@ -217,6 +248,12 @@ function classifyNichino(
  * rows は dokusya_id, rireki_no 昇順で届く前提。`diff_mark` は履歴の前回値
  * （zenkai_dokusya_busu / zenkai_hanbaiten_id）と現在値に差がある行（増減あり・
  * 販売店変更）に true を設定する（帳票行頭に「◆」）。
+ * 異なる購読者の変動が同日同一販売店に重なる場合は {@link mergeRowsByHanbaiten}
+ * で1行へ集約する。集約後、現在部数・新部数がともに0の販売店行は除外する
+ * （顧客CR #59108 — 「現在部数 または 新部数 が0でない店舗のみ掲載」）。
+ * SQL側の生行フィルタ（`NOT (zenkai=0 AND dokusya=0)`）は生行単体の判定であり、
+ * 販売店変更で dokusya_busu=0 の行が移動先店舗に現在0/新0の行を生成しうるため、
+ * 集約後の店舗単位でも改めて判定する。
  */
 export function groupZougenNichinoReports(
   rows: ZougenNichinoRawRow[],
@@ -280,9 +317,14 @@ export function groupZougenNichinoReports(
   }
 
   // 3) 出力は 管理支店コード昇順、行内は販売店コード昇順（SQLは dokusya_id 順）。
+  // 同一販売店の重複行はソート前に集約し（#59108）、集約後に現在部数・新部数が
+  // ともに0の店舗行を除外する（#59108）。
   const reports = order.map((k) => byKs.get(k) as ZougenNichinoReport);
   reports.sort((a, b) => a.kanri_shiten_code.localeCompare(b.kanri_shiten_code));
   for (const rep of reports) {
+    rep.rows = mergeRowsByHanbaiten(rep.rows).filter(
+      (row) => row.genzai_busu !== 0 || row.shin_busu !== 0,
+    );
     rep.rows.sort((a, b) => a.hanbaiten_code.localeCompare(b.hanbaiten_code));
   }
   return reports;

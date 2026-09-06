@@ -20,6 +20,7 @@ import BaseCodeInput from '@/components/common/BaseCodeInput.vue';
 import BaseFormFooter from '@/components/common/BaseFormFooter.vue';
 import BaseJaDropdown from '@/components/common/BaseJaDropdown.vue';
 import BaseTankaDropdown from '@/components/common/BaseTankaDropdown.vue';
+import BaseTodofukenSelect from '@/components/common/BaseTodofukenSelect.vue';
 import { useApiForm } from '@/composables/useApiForm';
 import { useEditGuard } from '@/composables/useEditGuard';
 import { useNotify } from '@/composables/useNotify';
@@ -38,7 +39,6 @@ import {
   type CreateHanbaitenBody,
   type UpdateHanbaitenBody,
 } from '@/api/hanbaiten/hanbaiten';
-import { useTodofuken } from '@/composables/useTodofuken';
 import { getJaDropdown, type JaDropdownItem } from '@/api/ja/ja';
 
 // ─── フォーム状態 ─────────────────────────────────────────────────
@@ -185,29 +185,21 @@ const isStaff = computed(() =>
 
 // ─── ドロップダウン options ─────────────────────────────────────────
 
-// この画面の都道府県は read-only 表示（JA に追従）。候補リストは持たず、
-// コード→名称の解決だけ共有キャッシュから行う。
-const { items: todofukenOptions, load: loadTodofuken, name: todofukenNameOf } =
-  useTodofuken();
-
-// ─── [pref-from-ja] 都道府県 は read-only で常に hanbaiten の JA
-// （m_ja.todofuken_code）をミラーする。ユーザー編集は不可:
+// [pref-from-ja] 都道府県は JA の都道府県（m_ja.todofuken_code）を「初期値」
+// として自動セットするが、ユーザーは <BaseTodofukenSelect> で別の都道府県に
+// 変更できる（顧客CR 2026-08-24 — 従来の read-only 固定を撤廃）。初期値の
+// セット元:
 //   - JA スコープ（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）→ ログインユーザーの
-//     JA 都道府県（authStore.user.todofuken_code）に固定。
+//     JA 都道府県（authStore.user.todofuken_code）。
 //   - NICHINO_STAFF 代行入力 → BaseJaDropdown で選んだ JA（onJaSelect）/
-//     ?ja_id prefill（resolveTodofukenForJa）に追従。
+//     ?ja_id prefill（resolveTodofukenForJa）に追従。JA を選び直すたびに
+//     都道府県も新しい JA の値へ再セットする（顧客確認 2026-08-24 — 都道府県は
+//     常に「その時点の JA」の初期値からやり直す）。
 //   - edit → detail レスポンス（loadDetail）で持つ。
-// disabled フィールドの表示ラベルは都道府県マスタで解決、送信値は2桁コード。
+// 候補リスト・表示ラベルの解決は <BaseTodofukenSelect> 内部（共有キャッシュ）
+// が担うので、この画面側は formState の2桁コードを持つだけでよい。
 
-const todofukenName = computed<string>(() => {
-  const code = formState.todofuken_code;
-  if (!code) return '';
-  // マスタ未取得・未知コードでも空にしない — コードをそのまま出して
-  // 「値はあるが名称が引けない」ことが画面から分かるようにする。
-  return todofukenNameOf(code) || code;
-});
-
-/** 新たに選ばれた JA から read-only 都道府県を同期（staff 経路）。 */
+/** 新たに選ばれた JA の都道府県を初期値としてセットする（staff 経路）。 */
 function onJaSelect(item: JaDropdownItem | null): void {
   formState.todofuken_code = item?.todofuken_code ?? '';
 }
@@ -313,19 +305,19 @@ async function applyRouteMode(): Promise<void> {
     const n = typeof rawJaId === 'number' ? rawJaId : Number(rawJaId);
     if (Number.isFinite(n) && n > 0) {
       formState.ja_id = n;
-      // [pref-from-ja] 固定 JA から read-only 都道府県を prefill —
+      // [pref-from-ja] 固定 JA から都道府県の初期値を prefill —
       // この事前選択経路では dropdown が @select を発火しない。
       void resolveTodofukenForJa(n);
     }
   } else {
     // JA スコープ（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）は自 JA でしか
-    // 作成できないため、都道府県は session ユーザーの JA 都道府県に固定。
+    // 作成できないため、都道府県の初期値は session ユーザーの JA 都道府県。
+    // ユーザーは <BaseTodofukenSelect> で別の都道府県に変更できる。
     formState.todofuken_code = authStore.user?.todofuken_code ?? '';
   }
 }
 
 onMounted(() => {
-  void loadTodofuken();
   void applyRouteMode();
 });
 
@@ -377,6 +369,7 @@ const FIELD_ORDER: readonly string[] = [
   'hanbaiten_code',
   'hanbaiten_name',
   'hanbaiten_name_kana',
+  'todofuken_code',
   'yubin_no',
   'address',
   'tel',
@@ -411,6 +404,11 @@ function validateClient(): boolean {
   }
   if (!formState.hanbaiten_name?.trim()) {
     errs.hanbaiten_name = REQUIRED_MSG;
+  }
+  // 都道府県は JA から自動セットされた初期値をユーザーが変更できるようになった
+  // ため（顧客CR 2026-08-24）、クリアして未選択のまま送信するのを防ぐ。
+  if (!formState.todofuken_code?.trim()) {
+    errs.todofuken_code = REQUIRED_MSG;
   }
 
   // 委託区分 / 振込手数料負担区分 は必須（顧客要件）。既定値あり(振込 / JA)だが
@@ -645,24 +643,20 @@ defineExpose({ formState, fieldErrors });
         <!-- ─── 住所・連絡先 ─────────────────────────────────── -->
         <div class="grid grid-cols-1 @lg:grid-cols-2 @3xl:grid-cols-3 gap-6">
           <a-form-item
-            html-for="todofuken_code" name="todofuken_code" label="都道府県">
-            <!-- [pref-from-ja] read-only — 都道府県 は常に hanbaiten の JA
-                 （m_ja の都道府県コード）をミラーし、ユーザー編集不可。
-                 staff: 選んだ JA、role 3/4/5: session ユーザーの JA、edit: detail。
-                 formState は2桁コードを保持しつつ解決した都道府県名を表示。 -->
-            <a-input
-              id="todofuken_code"
-              :value="todofukenName"
-              disabled
-            />
-            <!-- spec 用にラベルを先出し — antd の dropdown は開くまで option を
-                 DOM に描画しないが、テストは mount 時に wrapper.html() へ
-                 option テキストがあることを検証する。 -->
-            <span class="hidden" data-test="todofuken-options">
-              <span v-for="opt in todofukenOptions" :key="opt.todofuken_code">
-                {{ opt.todofuken_name }}
-              </span>
-            </span>
+            html-for="todofuken_code"
+            name="todofuken_code"
+            :validate-status="fieldErrors.todofuken_code ? 'error' : ''"
+            :help="fieldErrors.todofuken_code"
+          >
+            <template #label>
+              <span>都道府県</span>
+              <span class="text-error ml-1">*</span>
+            </template>
+            <!-- [pref-from-ja] 初期値は hanbaiten の JA（m_ja の都道府県コード）
+                 から自動セットされる（staff: 選んだ JA、role 3/4/5: session
+                 ユーザーの JA、edit: detail）が、ユーザーは編集可能
+                 （顧客CR 2026-08-24 — 従来の read-only 固定を撤廃）。 -->
+            <BaseTodofukenSelect id="todofuken_code" v-model:value="formState.todofuken_code" />
           </a-form-item>
 
           <a-form-item

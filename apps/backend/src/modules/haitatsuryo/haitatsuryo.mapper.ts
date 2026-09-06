@@ -26,6 +26,8 @@ export interface HaitatsuryoAggRow {
   hanbaiten_id: number | string;
   hanbaiten_code: string;
   hanbaiten_name: string;
+  /** 委託区分（m_code ITAKU_KUBUN: 1:振込, 2:日農委託, 9:その他）。 */
+  itaku_kubun: Numericish;
   total_busu: number | string;
   total_kingaku: number | string;
   /** 配達手数料単価（1部あたり、税区分で税込/税抜を切替）。 */
@@ -49,6 +51,8 @@ export interface HaitatsuryoRow {
   hanbaiten_id: number;
   hanbaiten_code: string;
   hanbaiten_name: string;
+  /** 委託区分（m_code ITAKU_KUBUN: 1:振込, 2:日農委託, 9:その他）。 */
+  itaku_kubun: number | null;
   total_busu: number;
   total_kingaku: number;
   haitatsuryo_shiharai_cycle: number | null;
@@ -138,6 +142,7 @@ export function buildHaitatsuryoSql(
            h.hanbaiten_id,
            h.hanbaiten_code,
            h.hanbaiten_name,
+           h.itaku_kubun,
            SUM(ld.dokusya_busu)                       AS total_busu,
            SUM(ld.dokusya_busu * CASE
                 WHEN $4::int = ${ZEI_KUBUN_UCHIZEI} THEN t.kingaku_zeikomi
@@ -169,7 +174,7 @@ export function buildHaitatsuryoSql(
        AND t.active_flg = TRUE
      WHERE ($5::int IS NULL OR h.haitatsuryo_shiharai_cycle = $5::int)
      GROUP BY h.hanbaiten_id,
-              h.hanbaiten_code, h.hanbaiten_name,
+              h.hanbaiten_code, h.hanbaiten_name, h.itaku_kubun,
               h.haitatsuryo_shiharai_cycle,
               h.bank_code, h.bank_name,
               h.bank_branch_code, h.bank_branch_name,
@@ -287,6 +292,7 @@ export function mapHaitatsuryoRows(
     hanbaiten_id: num(r.hanbaiten_id),
     hanbaiten_code: str(r.hanbaiten_code),
     hanbaiten_name: str(r.hanbaiten_name),
+    itaku_kubun: numOrNull(r.itaku_kubun),
     total_busu: num(r.total_busu),
     total_kingaku: num(r.total_kingaku),
     haitatsuryo_shiharai_cycle: numOrNull(r.haitatsuryo_shiharai_cycle),

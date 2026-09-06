@@ -19,6 +19,7 @@ updated_by: Dao Van Thang
 | --- | ---------- | ---- | -------------- | -------- | -------------- | -------------- |
 | 1   | 2026/04/14 | 1.0  | Dao Van Thang | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
 | 2   | 2026/05/21 | 1.1  | Dao Van Thang | 画面設計書 v1.3 対応：検索条件4項目を追加（shiten_code, kanri_shiten_id, jastem_toriatsukai_tenpo_code, kinyu_shiten_flg）。リクエストパラメータ表＋§4.3 / §4.4 / §4.5 SQLを更新 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 3   | 2026/08/20 | 1.2  | Tran Duc Tuyen | 不具合修正2026-08：§4.4 関連データチェックに `m_account`（所属支店、shiten_id 参照）と `t_dokusya_rireki`（購読者履歴、shiten_id 参照）を追加。特に `m_account.shiten_id` は実DBの外部キー制約(`fk_m_account_shiten`)が `ON DELETE RESTRICT` を明示宣言しているにもかかわらず、削除ガードの対象から漏れていた。 | | |
 
 ## システム概要
 
@@ -233,7 +234,7 @@ GET /api/v1/shiten?shiten_code=S0&shiten_name=本店&kanri_shiten_id=1&jastem_to
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 認証失敗の場合：HTTP 401 Unauthorized (`UNAUTHORIZED`)
 - 権限チェック：`shiten.view` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - 対象ロール：NICHINO_ADMIN（日農管理者・顧客CR 2026-08-24）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 
 ### 4.3 データ取得条件の設定
@@ -449,7 +450,7 @@ DELETE /api/v1/shiten/5
 
 - 認証情報を検証する（HTTP-only Cookieセッション）。
 - 権限チェック：`shiten.delete` を保持しているか確認する。
-  - 対象ロール：CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
+  - 対象ロール：NICHINO_ADMIN（日農管理者・顧客CR 2026-08-24）, CHUOKAI（中央会）, JA_HONTEN（JA本店）, JA_KANRI_SHITEN（JA管理支店）
 - 権限がない場合：HTTP 403 Forbidden (`FORBIDDEN`)
 ### 4.3 データ取得条件の設定
 
@@ -472,6 +473,16 @@ DELETE /api/v1/shiten/5
 SELECT COUNT(*) FROM t_dokusya
 WHERE shiten_id = :shiten_id AND deleted_at IS NULL;
 
+-- アカウント（所属支店）の参照チェック（不具合修正2026-08 — 実DBの
+-- m_account.shiten_id は ON DELETE RESTRICT を明示宣言しているが、
+-- 従来このアプリ層ガードには含まれていなかった）
+SELECT COUNT(*) FROM m_account
+WHERE shiten_id = :shiten_id AND deleted_at IS NULL;
+
+-- 購読者履歴の参照チェック（不具合修正2026-08 — t_dokusya_rireki は
+-- append-only の履歴テーブルで deleted_at 列を持たないため付けない）
+SELECT COUNT(*) FROM t_dokusya_rireki
+WHERE shiten_id = :shiten_id;
 ```
 
 - いずれかに関連レコードが存在する場合：

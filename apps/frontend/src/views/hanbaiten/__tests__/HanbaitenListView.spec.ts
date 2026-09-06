@@ -22,6 +22,7 @@ import {
 vi.mock('@/api/hanbaiten/hanbaiten', () => ({
   listHanbaiten: vi.fn(),
   removeHanbaiten: vi.fn(),
+  exportHanbaitenExcel: vi.fn(),
 }));
 
 // BaseJaDropdown calls /api/v1/ja/dropdown via getJaDropdown — stub it
@@ -134,7 +135,7 @@ describe('HanbaitenListView — initial render (機能定義 1.x)', () => {
     expect(labelTexts.some((t) => t.includes('FAX'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('住所'))).toBe(true);
     expect(labelTexts.some((t) => t.includes('所長名'))).toBe(true);
-    expect(labelTexts.some((t) => t.includes('廃店フラグ'))).toBe(true);
+    expect(labelTexts.some((t) => t.includes('廃店を含む'))).toBe(true);
   });
 
   it('should render rows from the API response when list resolves', async () => {
@@ -368,18 +369,18 @@ describe('HanbaitenListView — search (機能定義 2.x)', () => {
     expect(callArg).toMatchObject({ shocho_name: '山田' });
   });
 
-  it('should default haiten_flg to false so only 営業中 rows show on mount', async () => {
-    // COVERS: customer 2026-05-26 — exact-match semantic. Default
-    // (checkbox unchecked) sends haiten_flg=false → BE filters to
-    // 営業中のみ. Replaces the old "include 廃店" semantic.
+  it('should default haiten_flg to false so 廃店 rows are excluded on mount', async () => {
+    // COVERS: 顧客CR 2026-08-24 (revert of 2026-05-26 exact-match) —
+    // inclusive semantic. Default (checkbox unchecked) sends
+    // haiten_flg=false → BE excludes 廃店.
     await renderView();
     const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     const callArg = vi.mocked(listHanbaiten).mock.calls[0]?.[0] as Record<string, unknown> | undefined;
     expect(callArg?.haiten_flg).toBe(false);
   });
 
-  it('should send haiten_flg=true when 廃店フラグ is checked (show 廃店のみ)', async () => {
-    // COVERS: customer 2026-05-26 — checked = 廃店のみ (NOT include).
+  it('should send haiten_flg=true when 廃店を含む is checked (show both 営業中 and 廃店)', async () => {
+    // COVERS: 顧客CR 2026-08-24 — checked = 廃店を含む全件表示 (NOT 廃店のみ).
     const { wrapper } = await renderView();
     const { listHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
     vi.mocked(listHanbaiten).mockClear();
@@ -970,5 +971,111 @@ describe('HanbaitenListView — empty 検索 is a no-op', () => {
     await clearBtn!.trigger('click');
     await flushPromises();
     expect(listHanbaiten).not.toHaveBeenCalled();
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// Excel出力（顧客CR 2026-08-24）
+// ───────────────────────────────────────────────────────────────────────
+describe('HanbaitenListView — Excel出力', () => {
+  it('should render the Excel出力 button when mounted', async () => {
+    const { wrapper } = await renderView();
+    const exportBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Excel出力'));
+    expect(exportBtn).toBeDefined();
+  });
+
+  it('should call exportHanbaitenExcel with the current filter state (no page/sort) when Excel出力 is clicked', async () => {
+    const { wrapper } = await renderView();
+    const { exportHanbaitenExcel } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(exportHanbaitenExcel).mockClear();
+    vi.mocked(exportHanbaitenExcel).mockResolvedValue(new Blob(['x']));
+
+    const vm = wrapper.vm as any;
+    if (vm.state?.filters) {
+      vm.state.filters.hanbaiten_code = 'H001';
+      vm.state.filters.haiten_flg = true;
+    }
+    await flushPromises();
+
+    const exportBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Excel出力'));
+    await exportBtn!.trigger('click');
+    await flushPromises();
+
+    expect(exportHanbaitenExcel).toHaveBeenCalled();
+    const arg = vi.mocked(exportHanbaitenExcel).mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(arg).toMatchObject({ hanbaiten_code: 'H001', haiten_flg: true });
+    expect(arg?.page).toBeUndefined();
+    expect(arg?.per_page).toBeUndefined();
+    expect(arg?.sort_by).toBeUndefined();
+    expect(arg?.sort_order).toBeUndefined();
+  });
+
+  it('should show 「ダウンロードを開始しました。」 toast when export succeeds', async () => {
+    const { exportHanbaitenExcel } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(exportHanbaitenExcel).mockResolvedValue(new Blob(['x']));
+    const successSpy = vi.spyOn(message, 'success');
+    successSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const exportBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Excel出力'));
+    await exportBtn!.trigger('click');
+    await flushPromises();
+
+    expect(successSpy).toHaveBeenCalledWith('ダウンロードを開始しました。');
+  });
+
+  it('should show 「出力データがありません。」 toast when export rejects with 404 EXPORT_NO_DATA', async () => {
+    const { exportHanbaitenExcel } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(exportHanbaitenExcel).mockRejectedValueOnce({
+      response: {
+        status: 404,
+        data: { error_code: 'EXPORT_NO_DATA', message: '出力データがありません。' },
+      },
+    });
+    const errorSpy = vi.spyOn(message, 'error');
+    errorSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const exportBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Excel出力'));
+    await exportBtn!.trigger('click');
+    await flushPromises();
+
+    const calls = errorSpy.mock.calls.map((c) => String(c[0])).join(' ');
+    expect(calls).toContain('出力データがありません。');
+  });
+
+  it('should show 「出力データ件数が5000件を超えています。」 toast when export rejects with 409 EXPORT_LIMIT_EXCEEDED', async () => {
+    const { exportHanbaitenExcel } = await import('@/api/hanbaiten/hanbaiten');
+    vi.mocked(exportHanbaitenExcel).mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          error_code: 'EXPORT_LIMIT_EXCEEDED',
+          message: '出力データ件数が5000件を超えています。',
+        },
+      },
+    });
+    const errorSpy = vi.spyOn(message, 'error');
+    errorSpy.mockClear();
+
+    const { wrapper } = await renderView();
+    const exportBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Excel出力'));
+    await exportBtn!.trigger('click');
+    await flushPromises();
+
+    const calls = errorSpy.mock.calls.map((c) => String(c[0])).join(' ');
+    expect(calls).toContain('出力データ件数が5000件を超えています。');
   });
 });

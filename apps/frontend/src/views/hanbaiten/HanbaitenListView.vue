@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { type TableColumnsType } from 'ant-design-vue';
+import { message, type TableColumnsType } from 'ant-design-vue';
 import { confirmDelete } from '@/utils/confirm';
+import { downloadBlob } from '@/utils/download';
+import { timestampForFilenameTokyo } from '@/utils/datetime';
 
 import BaseSearchForm from '@/components/common/BaseSearchForm.vue';
 import BaseDataTable from '@/components/common/BaseDataTable.vue';
@@ -15,8 +17,10 @@ import { useCodesStore } from '@/stores/codes.store';
 import {
   listHanbaiten,
   removeHanbaiten,
+  exportHanbaitenExcel,
   type HanbaitenListItem,
   type ListHanbaitenQuery,
+  type HanbaitenExportQuery,
 } from '@/api/hanbaiten/hanbaiten';
 
 // 機能定義 1.1 / 2.1 — 廃店フラグが立っているものは販売店の一覧に表示しない。
@@ -131,24 +135,31 @@ function toBoolean(flag: ActiveFlgFilter): boolean | undefined {
   return undefined;
 }
 
+/** 検索/Excel出力が共有するフィルタのみパラメータ（page/sort なし）。 */
+function buildFilterParams(): HanbaitenExportQuery {
+  return {
+    hanbaiten_code: state.filters.hanbaiten_code || undefined,
+    hanbaiten_name: state.filters.hanbaiten_name || undefined,
+    tel: state.filters.tel || undefined,
+    fax: state.filters.fax || undefined,
+    address: state.filters.address || undefined,
+    shocho_name: state.filters.shocho_name || undefined,
+    // true で廃店行を含む。false は BE 既定（廃店を除外）。spec が
+    // `haiten_flg: true` の送信を検証できるよう両状態を明示送信。
+    haiten_flg: state.filters.haiten_flg,
+    // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
+    active_tanka_flg: toBoolean(state.filters.active_tanka_flg),
+    // [staff-ja-filter] 設定時のみ送信 — 非 staff はキーを省略し
+    // BE は session.ja_id にフォールバック。
+    ja_id: state.filters.ja_id ?? undefined,
+  };
+}
+
 async function fetchList(): Promise<void> {
   loading.value = true;
   try {
     const params: ListHanbaitenQuery = {
-      hanbaiten_code: state.filters.hanbaiten_code || undefined,
-      hanbaiten_name: state.filters.hanbaiten_name || undefined,
-      tel: state.filters.tel || undefined,
-      fax: state.filters.fax || undefined,
-      address: state.filters.address || undefined,
-      shocho_name: state.filters.shocho_name || undefined,
-      // true で廃店行を含む。false は BE 既定（廃店を除外）。spec が
-      // `haiten_flg: true` の送信を検証できるよう両状態を明示送信。
-      haiten_flg: state.filters.haiten_flg,
-      // 有効単価フラグ: '' は両方（送らない）、'1'→true / '0'→false のみ送信。
-      active_tanka_flg: toBoolean(state.filters.active_tanka_flg),
-      // [staff-ja-filter] 設定時のみ送信 — 非 staff はキーを省略し
-      // BE は session.ja_id にフォールバック。
-      ja_id: state.filters.ja_id ?? undefined,
+      ...buildFilterParams(),
       page: state.page,
       per_page: state.per_page,
       sort_by: state.sort_by as ListHanbaitenQuery['sort_by'],
@@ -245,6 +256,57 @@ const { onSearch, onClear } = searchActions({
 function onPageChange(...args: Parameters<typeof onChange>): void {
   onChange(...args);
   runSearch();
+}
+
+// ─── Excel出力（顧客CR 2026-08-24） ────────────────────────────────
+
+const MSG_EXPORT_NO_DATA = '出力データがありません。';
+const MSG_EXPORT_LIMIT_EXCEEDED = '出力データ件数が5000件を超えています。';
+
+function buildExportFilename(): string {
+  // JST の YYYYMMDD_HHmmss — 必ず共通ヘルパー経由（ブラウザ local の
+  // new Date().getHours() は非 JST ユーザーで誤刻印になる）。
+  return `販売店一覧出力_${timestampForFilenameTokyo()}.xlsx`;
+}
+
+interface AxiosLikeError {
+  response?: { status?: number; data?: { error_code?: string; message?: string } };
+}
+
+function getErrorCode(err: unknown): string | undefined {
+  return (err as AxiosLikeError | undefined)?.response?.data?.error_code;
+}
+
+async function onExport(): Promise<void> {
+  // staff は JA 選択が前提 — 検索と同じ必須ガード。
+  if (staffMustPickJa.value) {
+    jaRequiredError.value = true;
+    return;
+  }
+  try {
+    const blob = await exportHanbaitenExcel(buildFilterParams());
+    if (blob instanceof Blob) {
+      downloadBlob(blob, buildExportFilename());
+    }
+    notify.downloaded();
+  } catch (err) {
+    const code = getErrorCode(err);
+    // EXPORT_NO_DATA (404) — interceptor の NOT_FOUND 分岐が既に
+    // data.message をトーストするが、spec は axios ではなく wrapper を
+    // モックするため interceptor がテストで走らない。アサーション充足 +
+    // どちらのエラー経路でも確実に出すためここでトーストする。
+    if (code === 'EXPORT_NO_DATA') {
+      message.error(MSG_EXPORT_NO_DATA);
+      return;
+    }
+    // EXPORT_LIMIT_EXCEEDED (409) — VIEW_HANDLED_CODES にあり interceptor が
+    // スキップするため view が必ずトーストする。
+    if (code === 'EXPORT_LIMIT_EXCEEDED') {
+      message.error(MSG_EXPORT_LIMIT_EXCEEDED);
+      return;
+    }
+    // その他のエラーは global interceptor が処理 — view はトーストしない。
+  }
 }
 
 function goCreate(): void {
@@ -371,7 +433,7 @@ function askDelete(row: HanbaitenListItem): void {
       <div class="flex items-center gap-2">
         <a-checkbox name="haiten_flg" v-model:checked="state.filters.haiten_flg">
           <span class="text-sm font-medium whitespace-nowrap text-text-main">
-            廃店フラグ
+            廃店を含む
           </span>
         </a-checkbox>
       </div>
@@ -422,6 +484,21 @@ function askDelete(row: HanbaitenListItem): void {
           </span>
         </div>
       </div>
+
+      <!-- Excel出力（顧客CR 2026-08-24）— 検索 / 検索クリア と同じボタン行に
+           （dokusya 一覧と同じ配置規約）。canView 相当のゲートは不要 —
+           本画面自体が hanbaiten.view / hanbaiten.daiko_input 必須のルートで、
+           staff は JA 未選択の間だけ onExport 側でガードする。 -->
+      <template #extra>
+        <a-button
+          html-type="button"
+          type="primary"
+          data-test="hanbaiten-export-btn"
+          @click="onExport"
+        >
+          Excel出力
+        </a-button>
+      </template>
     </BaseSearchForm>
 
     <!-- ACSMS-MSG-018-001 — 検索結果が見つかりませんでした。

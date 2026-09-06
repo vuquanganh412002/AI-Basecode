@@ -10,6 +10,7 @@ import { useNotify } from '@/composables/useNotify';
 import {
   previewZougenHanbaiten,
   exportZougenHanbaiten,
+  exportZougenHanbaitenExcel,
   type ZougenHanbaitenQuery,
   type ZougenPreviewData,
   type ZougenAddressChangeRow,
@@ -56,7 +57,9 @@ const noDataMessage = ref(false);
 // 1ページ = 1販売店+管理支店(combo)。ZOUGEN_PER_PAGE は「1 combo 内で1ページに載せる
 // 最大レコード数」で、これを超える大きい combo のみ自 combo 内で複数ページに分かれる
 // （BE の per_page として送信）。総ページ数は combo 数で決まる（顧客要件 2026-07）。
-const ZOUGEN_PER_PAGE = 15;
+// BE zougen.mapper.ts の ZOUGEN_PER_PAGE と同じ値で揃える（A4縦1ページの行数上限、
+// 顧客要件2026-08-26で15→20へ引き上げ）。
+const ZOUGEN_PER_PAGE = 20;
 const currentPage = ref(1);
 
 /** 発行日時（プレビュー押下時刻 JST。条件エリアのラベル＋帳票フッタに印字）。 */
@@ -176,6 +179,29 @@ async function onExport(): Promise<void> {
   }
 }
 
+/**
+ * Excel出力 = レポートプレビューと同じ内容を実際の帳票に近い体裁でExcel出力・
+ * 自動ダウンロードする。電子帳票作成（PDF）とは別の読み取り専用出力。
+ */
+async function onExportExcel(): Promise<void> {
+  if (!validate()) return;
+  if (!issuedAt.value) issuedAt.value = nowIssuedAt();
+  try {
+    const { blob, filename } = await exportZougenHanbaitenExcel(buildQuery());
+    // 対象0件のとき BE は Excel ではなく application/json を返す（PDF と同じ規約）。
+    if (blob.type.includes('application/json')) {
+      previewData.value = null;
+      noDataMessage.value = true;
+      return;
+    }
+    const [y, m, d] = formState.tekiyo_date.split('-');
+    downloadBlob(blob, filename ?? `増減連絡票_${y}年${m}月${d}日.xlsx`);
+    notify.downloaded();
+  } catch {
+    // 403/500 はインターセプタがトースト済み。ローカル状態のみ整理。
+  }
+}
+
 // 販売店・管理支店の選択肢ロードは BaseHanbaitenSelect / BaseKanriShitenSelect が
 // 自前で行う（コード/名称検索・50件ずつ無限スクロール）。
 
@@ -282,6 +308,13 @@ defineExpose({ formState });
         </a-button>
         <a-button :disabled="!canUse || !hasReports" data-test="export-btn" @click="onExport">
           電子帳票作成
+        </a-button>
+        <a-button
+          :disabled="!canUse || !hasReports"
+          data-test="export-excel-btn"
+          @click="onExportExcel"
+        >
+          Excel出力
         </a-button>
       </div>
     </div>

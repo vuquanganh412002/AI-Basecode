@@ -333,9 +333,18 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
 
 ### 4.3 データ取得条件の設定
 
+顧客CR #59108（片岡様フィードバック 2026-08-31）: 従来は「その日に部数の動きが
+あった販売店のみ」が出力され、動きが無い既存購読者の販売店（現在部数・新部数が
+ともに存在するのに増減が無いだけの店舗）が帳票から漏れる不具合があった。要件
+定義書どおり「現在部数または新部数がある販売店は全て出力する」ため、抽出は
+**2つのクエリの結果を合算**する：
+
+1. **当日の増減報告対象行**（下記・従来どおり `r.joho_henko_tekiyo_date = :tekiyo_date`）
+2. **動きの無い既存購読者の基礎行**（新規・`nichinoBaselineQuery`。4.3.1 参照）
+
 - ログインユーザーのスコープ（role_code, ja_id, kanri_shiten_id）を取得する。
-- 抽出条件を設定する：
-  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。**`<=` ではない**：その日の変動のみ）
+- **クエリ①（当日の増減報告対象行）**の抽出条件を設定する：
+  - `r.joho_henko_tekiyo_date = :tekiyo_date`（画面の適用日と一致。その日の変動のみ）
   - `r.zougen_hokoku_flg = true`（増減報告対象の変更）
   - `r.torikeshi_flg = false`（取消(赤伝)行を除外）
   - **論理削除済み購読者を除外する（`t_dokusya.deleted_at IS NULL`。2026-08-12対応）**：
@@ -365,12 +374,61 @@ GET /api/v1/report/zougen-nichino/preview?tekiyo_date=2026-03-01&kanri_shiten_id
   - **本SQLは全件取得する（OFFSET/LIMITを付与しない）**。ページングはこの後、4.6 のとおり
     メモリ内で行う（購読者単位のSQLページングではない）。
 
+#### 4.3.1 クエリ②（動きの無い既存購読者の基礎行・`nichinoBaselineQuery`）
+
+各購読者の「適用日時点で有効な履歴」= `torikeshi_flg = false` の行のうち
+`joho_henko_tekiyo_date` が適用日**以下**で最大（同日は `rireki_no` 最大）の1行
+（`t_dokusya_rireki` の現行判定と同じ定義）。この行が当日(=適用日)の増減報告対象
+行（クエリ①）であればそちらで計上済みのため、クエリ②では除外する（二重計上防止）。
+
+```sql
+SELECT r.dokusya_id, r.hanbaiten_id, r.dokusya_busu, r.kanri_shiten_id, /* … */
+FROM t_dokusya_rireki r
+/* JOIN群はクエリ①と同一（t_dokusya / m_hanbaiten h / m_kanri_shiten ks / m_ja j /
+   m_hanbaiten zh / m_todofuken td） */
+WHERE r.torikeshi_flg = false
+  AND r.joho_henko_tekiyo_date <= :tekiyo_date
+  /* 現在0部の購読者は現在部数=新部数=0となり出力対象外のため事前に除外 */
+  AND r.dokusya_busu != 0
+  AND r.dokusya_shubetsu = 1
+  /* r が「適用日時点で有効な履歴」であること（同一購読者でより新しい
+     (joho, rireki_no) の行が存在しない）。IX_t_dokusya_rireki_chain
+     (dokusya_id, joho_henko_tekiyo_date, rireki_no) で効率化される。 */
+  AND NOT EXISTS (
+    SELECT 1 FROM t_dokusya_rireki r2
+     WHERE r2.dokusya_id = r.dokusya_id
+       AND r2.torikeshi_flg = false
+       AND r2.joho_henko_tekiyo_date <= :tekiyo_date
+       AND (r2.joho_henko_tekiyo_date > r.joho_henko_tekiyo_date
+            OR (r2.joho_henko_tekiyo_date = r.joho_henko_tekiyo_date
+                AND r2.rireki_no > r.rireki_no))
+  )
+  /* 当日の増減報告対象行（クエリ①）がある購読者は除外（二重計上防止） */
+  AND NOT EXISTS (
+    SELECT 1 FROM t_dokusya_rireki r3
+     WHERE r3.dokusya_id = r.dokusya_id
+       AND r3.torikeshi_flg = false
+       AND r3.joho_henko_tekiyo_date = :tekiyo_date
+       AND r3.zougen_hokoku_flg = true
+  )
+  /* 管理支店フィルタ・DataScopeはクエリ①と同一（4.3参照） */
+```
+
+取得した行は、`zenkai_dokusya_busu` = 自身の `dokusya_busu`、`zenkai_hanbaiten_id`
+= 自身の `hanbaiten_id`（他の `zenkai_*` 列も現在値で複製）としてクエリ①の行と
+同じ形へ変換してから合算する。これにより「現在＝新（変化なし）」を表現し、4.6の
+累計・グループ化ロジックはクエリ①・②を区別せず共通処理できる（同一販売店内で
+自然に増部数=減部数=0・`diff_mark=false` に分類される）。
+
 ### 4.4 データ件数の取得
 
 - 抽出条件に一致する対象レコード件数を取得する。
 - 0件の場合：HTTP 200 + `reports:[]`（FE が ACSMS-MSG-029-002「対象のデータが存在しません。」を画面内表示）。
 
-### 4.5 データ取得
+### 4.5 データ取得（クエリ①・当日の増減報告対象行）
+
+クエリ②（動きの無い既存購読者の基礎行）は 4.3.1 参照。両クエリの結果は
+（変換後に）1つの配列へ連結し、4.6 の累計・グループ化処理へ渡す。
 
 ```sql
 SELECT r.dokusya_rireki_id, r.dokusya_id,
@@ -423,6 +481,9 @@ ORDER BY r.dokusya_id ASC, r.rireki_no ASC
 
 ### 4.6 レスポンス生成
 
+- クエリ①（当日の増減報告対象行）とクエリ②（動きの無い既存購読者の基礎行。4.3.1）
+  の結果を連結した行集合に対して以下を行う。両クエリの購読者集合は互いに素
+  （クエリ②の `NOT EXISTS` で二重計上を防止済み）。
 - **同一購読者（`dokusya_id`）の同日複数履歴を累計する**（SCR-028 と同方針）：
   - **現在部数 `genzai`** = その日の最小 `rireki_no` レコードの前回部数（日初）
   - **新部数 `shin`** = その日の最大 `rireki_no` レコードの現在部数（日末）
@@ -654,7 +715,7 @@ PDFはブラウザへ返さない。S3保存＋メール通知後、保存ファ
 
 ### 4.3 データ取得
 
-- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（`joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`torikeshi_flg = false`、論理削除済み購読者の除外（`t_dokusya.deleted_at IS NULL`）、`dokusya_shubetsu = 1`（紙版のみ）、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用。廃店(`haiten_flg`)による除外は行わない — 顧客要件 #57976）。OFFSET/LIMITは付与せず全件取得する。
+- `ACSMS-API-029-001` の 4.3 〜 4.5 と同一の抽出条件・SQLでデータを取得する（クエリ①: `joho_henko_tekiyo_date = :tekiyo_date`、`zougen_hokoku_flg = true`、`torikeshi_flg = false`、論理削除済み購読者の除外（`t_dokusya.deleted_at IS NULL`）、`dokusya_shubetsu = 1`（紙版のみ）、`現在部数=0 AND 新部数=0` のレコード除外、DataScope適用。廃店(`haiten_flg`)による除外は行わない — 顧客要件 #57976／クエリ②: 動きの無い既存購読者の基礎行、4.3.1参照。顧客CR #59108）。OFFSET/LIMITは付与せず全件取得する。
 - 取得件数が0件の場合：HTTP 200 + `application/json` `{ data: { reports: [] } }`（ファイルは生成しない。FE が ACSMS-MSG-029-002 を画面内表示）。
 
 ### 4.4 PDF生成・S3保存

@@ -29,6 +29,8 @@ export function buildHaitatsuryoAggRow(overrides: Record<string, unknown> = {}) 
     hanbaiten_id: 101,
     hanbaiten_code: 'H001',
     hanbaiten_name: '東京中央販売店',
+    // 委託区分（m_code ITAKU_KUBUN）— 既定 1:振込。
+    itaku_kubun: 1,
     total_busu: 120,
     total_kingaku: 588000,
     haitatsuryo_shiharai_cycle: 3,

@@ -107,10 +107,17 @@ interface RenderOptions {
   user?: ReturnType<typeof buildAuthUser>;
 }
 
-/** Default session: CHUOKAI holding dokusya.import (seeder §3 row 5). */
+/**
+ * Default session: CHUOKAI holding dokusya.import (seeder §3 row 5).
+ * paper_flg/denshi_flg both true by default so existing tests can freely
+ * select either 購読種別 radio — dedicated tests below override one flag to
+ * false to verify the disable-by-flag gate (不具合修正2026-08).
+ */
 function buildImportUser(overrides: Record<string, unknown> = {}) {
   return buildAuthUser({
     permissions: ['dokusya.view', 'dokusya.import'],
+    paper_flg: true,
+    denshi_flg: true,
     ...overrides,
   });
 }
@@ -420,17 +427,63 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
     expect(isPickerDisabled(wrapper, 'import-joho-date')).toBe(true);
   });
 
-  it('should collapse the column grid to the key column when 中止日 is entered (一括中止)', async () => {
+  it('should collapse the column grid to the ID / 組合員コード key columns when 中止日 is entered (一括中止・不具合修正2026-08)', async () => {
     // 一括中止は解約予約を入れるだけ。他の列を書かないので選ばせない。
+    // 対象特定は ID または 組合員コード のどちらでも可（組合員コードは重複
+    // しうるためBE側で曖昧な場合は行エラーになる）。
     const { wrapper } = await renderView();
     await wrapper.find('[data-test="import-mode-update"]').setValue();
     await flushPromises();
     await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
 
     const boxes = wrapper.findAll('input[type="checkbox"][name="col"]');
-    expect(boxes).toHaveLength(1);
-    expect((boxes[0].element as HTMLInputElement).value).toBe('dokusya_id');
+    expect(boxes).toHaveLength(2);
+    const values = boxes.map((b) => (b.element as HTMLInputElement).value).sort();
+    expect(values).toEqual(['dokusya_id', 'kumiaiin_code']);
     expect(wrapper.find('[data-test="import-bulk-stop-note"]').exists()).toBe(true);
+  });
+
+  it('should default-check dokusya_id (not kumiaiin_code) when entering 一括中止, but allow switching to kumiaiin_code (不具合修正2026-08)', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+
+    const idBox = wrapper
+      .findAll('input[type="checkbox"][name="col"]')
+      .find((b) => (b.element as HTMLInputElement).value === 'dokusya_id')!;
+    const kumiaiinBox = wrapper
+      .findAll('input[type="checkbox"][name="col"]')
+      .find((b) => (b.element as HTMLInputElement).value === 'kumiaiin_code')!;
+    expect((idBox.element as HTMLInputElement).checked).toBe(true);
+    expect((kumiaiinBox.element as HTMLInputElement).checked).toBe(false);
+    expect((idBox.element as HTMLInputElement).disabled).toBe(false);
+    expect((kumiaiinBox.element as HTMLInputElement).disabled).toBe(false);
+
+    // ID を外し、組合員コードだけにできる（送信キーを切替可能）。
+    await idBox.setValue(false);
+    expect((idBox.element as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('should block submit with an error toast when 一括中止 has neither ID nor 組合員コード checked (不具合修正2026-08)', async () => {
+    const { wrapper } = await renderView();
+    await wrapper.find('[data-test="import-mode-update"]').setValue();
+    await flushPromises();
+    await setPickerDate(wrapper, 'chushiDateFe', '2099-05-31');
+
+    const idBox = wrapper
+      .findAll('input[type="checkbox"][name="col"]')
+      .find((b) => (b.element as HTMLInputElement).value === 'dokusya_id')!;
+    await idBox.setValue(false); // 既定でONのIDを外し、両方未選択にする。
+
+    await uploadFile(wrapper, [buildImportRow({ dokusya_id: 215 })]);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+
+    expect(vi.mocked(message.error)).toHaveBeenCalledWith(
+      'IDまたは組合員コードのいずれかを選択してください。',
+    );
+    expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
   });
 
   it('should lock the 12 帳票影響項目 when 紙版 × 適用日=当日', async () => {
@@ -638,6 +691,51 @@ describe('DokusyaImportView (ACSMS-SCR-016) — initial render', () => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════
+// 購読種別ラジオの活性制御（不具合修正2026-08）— DokusyaFormView.vue の
+// canPaper/canDenshi/isShubetsuAllowed と同じ規則。取込は行単位で
+// assertShubetsuFlag(BE) が実際の境界、ここは UX の disable のみ検証する。
+// ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaImportView (ACSMS-SCR-016) — 購読種別ラジオの活性制御 (不具合修正2026-08)', () => {
+  it('should disable the 電子版 radio when the account lacks denshi_flg (paper_flg only)', async () => {
+    const { wrapper } = await renderView({
+      user: buildImportUser({ paper_flg: true, denshi_flg: false }),
+    });
+    const paper = wrapper.find('[data-test="import-shubetsu-1"]');
+    const digital = wrapper.find('[data-test="import-shubetsu-2"]');
+    expect((paper.element as HTMLInputElement).disabled).toBe(false);
+    expect((digital.element as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it('should disable the 紙版 radio when the account lacks paper_flg (denshi_flg only)', async () => {
+    const { wrapper } = await renderView({
+      user: buildImportUser({ paper_flg: false, denshi_flg: true }),
+    });
+    const paper = wrapper.find('[data-test="import-shubetsu-1"]');
+    const digital = wrapper.find('[data-test="import-shubetsu-2"]');
+    expect((paper.element as HTMLInputElement).disabled).toBe(true);
+    expect((digital.element as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it('should default the 購読種別 selection to 電子版 when only denshi_flg is granted (default 紙版 would land on a disabled option)', async () => {
+    const { wrapper } = await renderView({
+      user: buildImportUser({ paper_flg: false, denshi_flg: true }),
+    });
+    const digital = wrapper.find('[data-test="import-shubetsu-2"]');
+    expect((digital.element as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('should enable both radios when the account holds both flags', async () => {
+    const { wrapper } = await renderView({
+      user: buildImportUser({ paper_flg: true, denshi_flg: true }),
+    });
+    const paper = wrapper.find('[data-test="import-shubetsu-1"]');
+    const digital = wrapper.find('[data-test="import-shubetsu-2"]');
+    expect((paper.element as HTMLInputElement).disabled).toBe(false);
+    expect((digital.element as HTMLInputElement).disabled).toBe(false);
+  });
+});
+
 describe('DokusyaImportView (ACSMS-SCR-016) — テンプレートダウンロード', () => {
   it('should call downloadDokusyaImportTemplate when テンプレート button is clicked', async () => {
     vi.mocked(downloadDokusyaImportTemplate).mockResolvedValue(
@@ -715,6 +813,45 @@ describe('DokusyaImportView (ACSMS-SCR-016) — file selection + preview', () =>
     const { wrapper } = await renderView();
     await uploadFile(wrapper, buildImportRows(3));
     expect(wrapper.text()).toMatch(/3/);
+  });
+
+  it('should paginate the preview table at 20 rows/page (default) instead of rendering all rows (DOM/heap safety on large files, via shared BaseImportPreviewTable)', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, buildImportRows(45));
+
+    const preview = wrapper.find('[data-test="preview-section"]');
+    expect(preview.exists()).toBe(true);
+    // ページ1: 既定ページサイズ20件のみ描画。
+    expect(preview.findAll('tbody tr')).toHaveLength(20);
+    expect(wrapper.text()).toContain('K00001');
+    expect(wrapper.text()).not.toContain('K00021');
+    // 件数バッジ・ページャの'全 N 件'表示は全件数を表示する。
+    expect(wrapper.text()).toContain('45件');
+    expect(wrapper.find('[data-test="preview-pagination"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('全 45 件');
+
+    // ページ2へ: 次の20件を描画。
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+    expect(preview.findAll('tbody tr')).toHaveLength(20);
+    expect(wrapper.text()).toContain('K00021');
+    expect(wrapper.text()).not.toContain('K00001');
+  });
+
+  it('should reset the preview to page 1 when a new file is selected', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, buildImportRows(45));
+    await wrapper.find('.ant-pagination-item-2').trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('K00021');
+
+    // 別ファイルを選び直すと1ページ目に戻る。
+    await uploadFile(
+      wrapper,
+      [buildImportRow({ kumiaiin_code: 'NEW001', shimei_sei: '新規' })],
+      'other.xlsx',
+    );
+    expect(wrapper.text()).toContain('NEW001');
   });
 
   it('should clear the file input value on click so re-picking the same edited file fires change again', async () => {
@@ -1123,6 +1260,25 @@ describe('DokusyaImportView (ACSMS-SCR-016) — client validation before submit'
     expect(vi.mocked(importDokusyaExcel)).not.toHaveBeenCalled();
   });
 
+  it('should NOT block submit when a 電子版 row has biko line 1 exceeding 30 chars (行別チェック撤廃・紙版と統一, 顧客要件2026-08-26)', async () => {
+    const { wrapper } = await renderView();
+    await setShubetsu(wrapper, 2);
+    await uploadFile(wrapper, [buildImportRow({ biko: 'あ'.repeat(31) })]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
+  });
+
+  it('should NOT block submit when a 紙版 row has biko line 1 exceeding 30 chars (電子版へ連携されないため対象外)', async () => {
+    const { wrapper } = await renderView();
+    await uploadFile(wrapper, [buildImportRow({ biko: 'あ'.repeat(31) })]);
+    vi.mocked(importDokusyaExcel).mockResolvedValue(buildImportSuccessResponse() as any);
+    await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+    await flushPromises();
+    expect(vi.mocked(importDokusyaExcel)).toHaveBeenCalledTimes(1);
+  });
+
   it('should block submit when an UPDATE row omits 読者情報変更適用日', async () => {
     // 顧客要件 2026-06 — UPDATE は読者情報変更適用日が必須。
     const { wrapper } = await renderView();
@@ -1356,6 +1512,76 @@ describe('DokusyaImportView (ACSMS-SCR-016) — success path', () => {
     const sawCount = result.exists() ? /2/.test(result.text()) : /2/.test(wrapper.text());
     expect(sawCount).toBe(true);
   });
+
+  // 不具合修正2026-08 — 電子版は1行=1txのため部分成功があり得る。BE が 200 +
+  // failed_count > 0 + row_errors[] で返す（throw しない）ケースを検証する。
+  describe('電子版の部分成功（failed_count > 0・不具合修正2026-08）', () => {
+    it('should show a warning toast (not success) with the partial-success message when failed_count > 0', async () => {
+      const { wrapper } = await renderView();
+      await setShubetsu(wrapper, 2);
+      await uploadFile(wrapper, [
+        buildImportRow({ kumiaiin_code: 'D1', email: 'd1@example.com' }),
+        buildImportRow({ kumiaiin_code: 'D2', email: 'd2@example.com' }),
+      ]);
+      vi.mocked(importDokusyaExcel).mockResolvedValue(
+        buildImportSuccessResponse({
+          data: { created_count: 1, failed_count: 1, rireki_count: 1, total_rows: 2 },
+          message: '1件成功、1件失敗しました。',
+          row_errors: [{ row: 3, message: 'denshiban push failed' }],
+        }) as any,
+      );
+      await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+      await flushPromises();
+
+      expect(vi.mocked(message.warning)).toHaveBeenCalledWith('1件成功、1件失敗しました。');
+      expect(vi.mocked(message.success)).not.toHaveBeenCalled();
+    });
+
+    it('should render the failed rows via the existing row-error panel', async () => {
+      const { wrapper } = await renderView();
+      await setShubetsu(wrapper, 2);
+      await uploadFile(wrapper, [
+        buildImportRow({ kumiaiin_code: 'D1', email: 'd1@example.com' }),
+        buildImportRow({ kumiaiin_code: 'D2', email: 'd2@example.com' }),
+      ]);
+      vi.mocked(importDokusyaExcel).mockResolvedValue(
+        buildImportSuccessResponse({
+          data: { created_count: 1, failed_count: 1, rireki_count: 1, total_rows: 2 },
+          message: '1件成功、1件失敗しました。',
+          row_errors: [{ row: 3, message: 'denshiban push failed' }],
+        }) as any,
+      );
+      await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+      await flushPromises();
+
+      const panel = wrapper.find('[data-test="import-error-panel"]');
+      expect(panel.exists()).toBe(true);
+      expect(panel.text()).toContain('denshiban push failed');
+    });
+
+    it('should display failed_count in the result summary', async () => {
+      const { wrapper } = await renderView();
+      await setShubetsu(wrapper, 2);
+      await uploadFile(wrapper, [
+        buildImportRow({ kumiaiin_code: 'D1', email: 'd1@example.com' }),
+        buildImportRow({ kumiaiin_code: 'D2', email: 'd2@example.com' }),
+      ]);
+      vi.mocked(importDokusyaExcel).mockResolvedValue(
+        buildImportSuccessResponse({
+          data: { created_count: 1, failed_count: 1, rireki_count: 1, total_rows: 2 },
+          message: '1件成功、1件失敗しました。',
+          row_errors: [{ row: 3, message: 'denshiban push failed' }],
+        }) as any,
+      );
+      await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
+      await flushPromises();
+
+      const result = wrapper.find('[data-test="import-result"]');
+      expect(result.exists()).toBe(true);
+      expect(result.text()).toContain('失敗');
+      expect(result.text()).toContain('1');
+    });
+  });
 });
 
 describe('DokusyaImportView (ACSMS-SCR-016) — error paths', () => {
@@ -1372,7 +1598,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — error paths', () => {
     await flushPromises();
     // 機能 8.4 — 「行{N}: {項目名} — {エラー理由}」. Either an inline error
     // panel or a toast surfaces the row numbers / field names.
-    const errorPanel = wrapper.find('[data-test="import-error-list"]');
+    const errorPanel = wrapper.find('[data-test="import-error-panel"]');
     const text = errorPanel.exists() ? errorPanel.text() : wrapper.text();
     const sawRowError =
       /行\s*2|行\s*3|dokusya_shubetsu|購読種別|shiharai_hoho|tanka_code/.test(text) ||
@@ -1400,11 +1626,11 @@ describe('DokusyaImportView (ACSMS-SCR-016) — error paths', () => {
     });
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
-    const panel = wrapper.find('[data-test="import-error-list"]');
+    const panel = wrapper.find('[data-test="import-error-panel"]');
     expect(panel.exists()).toBe(true);
     const text = panel.text();
-    expect(text).toMatch(/行\s*2/);
-    expect(text).toMatch(/行\s*3/);
+    expect(text).toMatch(/2\s*行目/);
+    expect(text).toMatch(/3\s*行目/);
   });
 
   it('should cap the rendered row-level error list at 10 entries when IMPORT_VALIDATION_ERROR returns many errors', async () => {
@@ -1425,7 +1651,7 @@ describe('DokusyaImportView (ACSMS-SCR-016) — error paths', () => {
     });
     await wrapper.find('[data-test="import-submit-btn"]').trigger('click');
     await flushPromises();
-    const errorPanel = wrapper.find('[data-test="import-error-list"]');
+    const errorPanel = wrapper.find('[data-test="import-error-panel"]');
     if (errorPanel.exists()) {
       const rows = errorPanel.findAll('[data-test="import-error-row"]');
       expect(rows.length).toBeLessThanOrEqual(10);

@@ -8,6 +8,9 @@ import { Ja } from '@/database/entities/ja.entity';
 import { Todofuken } from '@/database/entities/todofuken.entity';
 import { Role } from '@/database/entities/role.entity';
 import { RoleCode } from '@/common/enums/role-code.enum';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { TODOFUKEN_CODE_NOT_FOUND_MESSAGE } from '@/common/constants/todofuken.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import {
   paginate,
   paginateCursor,
@@ -37,12 +40,14 @@ import {
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { assertJaScope, applyJaScope } from '@/common/utils/data-scope';
 import { isUniqueViolation } from '@/common/utils/db-errors';
-import { assertNoRelatedRows } from '@/common/utils/fk-conflict';
+import {
+  assertNoRelatedRows,
+  type RelatedTableEntry,
+} from '@/common/utils/fk-conflict';
 import { pickBool, pickNumber, pickString } from '@/common/utils/pick';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
 // ACSMS-SCR-004(一覧/削除)用の audit-context ラベル。
-const SCREEN_NAME_SCR004 = 'JAマスタ明細検索画面 (ACSMS-SCR-004)';
 
 // sort_by → QB 列名の対応。@IsIn(JA_SEARCH_SORT_BY) が範囲外を拒否済みだが、
 // DTO ドリフト時の SQLインジェクション防止に動的ルックアップを維持。
@@ -66,13 +71,20 @@ const SORT_COLUMN_MAP: Record<JaSearchSortBy, string> = {
 // (@/common/utils/fk-conflict)がこの readonly リスト + FK 列名で各テーブルに
 // パラメタライズド `SELECT COUNT(*) ... WHERE ${fk}=$1 AND deleted_at IS NULL`
 // を実行。ヘルパが SQL に埋め込むためリストは必ずハードコード(ユーザ入力不可)。
-const RELATED_TABLES: readonly string[] = [
+// 不具合修正2026-08: t_oshirase（お知らせ、ja_id 参照 — 公開中の可能性がある
+// 生きた業務データ）と t_dokusya_rireki（購読者履歴、append-only）を追加。
+// 両方とも実DBのFK制約は存在するが従来このガードに含まれていなかった。
+// t_file_upload / t_file_download / t_log は操作ログ・監査証跡の蓄積テーブルで
+// あり、業務上のリレーションではないため意図的に対象外（顧客要件確認済み）。
+const RELATED_TABLES: readonly RelatedTableEntry[] = [
   'm_kanri_shiten',
   'm_shiten',
   'm_hanbaiten',
   'm_tanka',
   't_dokusya',
   'm_account',
+  't_oshirase',
+  { table: 't_dokusya_rireki', hasDeletedAt: false },
 ];
 
 // フィールド単位制限表(.claude/rules/security.md §Layer 3)。編集可能な
@@ -114,7 +126,6 @@ const FIELD_RESTRICTIONS: FieldRestrictionTable = {
   },
 };
 
-const SCREEN_NAME = 'JAマスタ登録画面 (ACSMS-SCR-005)';
 const TABLE_NAME = 'm_ja';
 
 @Injectable()
@@ -164,7 +175,7 @@ export class JaService {
       where: { todofukenCode: dto.todofuken_code },
     });
     if (!td) {
-      throw new BadRequestException('都道府県コードが存在しません。');
+      throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
     }
 
     // [uniqueness-check] — JAコード一意性チェック。`withDeleted: true`：
@@ -205,7 +216,7 @@ export class JaService {
         const created = (await manager.save(entity)) as Ja;
 
         await this.auditLog.logCreate(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, created.jaId),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_005, TABLE_NAME, created.jaId),
           created,
           manager,
         );
@@ -217,14 +228,14 @@ export class JaService {
       // saved.todofukenCode === dto.todofuken_code → 再クエリせず再利用。
       return {
         ...toJaResponse(saved, td.todofukenName),
-        message: '登録しました。',
+        message: SuccessMessage.CREATED,
       };
     } catch (err) {
       // 競合対策：並行 CREATE 2件が事前チェックを通過し2件目の INSERT が
       // UNIQUE INDEX に衝突する場合、23505 を 500 でなく 400 に変換。
       if (isUniqueViolation(err)) {
         await this.auditLog.logError(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_005, TABLE_NAME, null),
           AuditOperation.CREATE,
           err as Error,
         );
@@ -232,7 +243,7 @@ export class JaService {
       }
       // [audit-error-log] — ロールバックされた tx の外側で記録。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_005, TABLE_NAME, null),
         AuditOperation.CREATE,
         err as Error,
       );
@@ -275,7 +286,7 @@ export class JaService {
         where: { todofukenCode: filtered.todofuken_code as string },
       });
       if (!validatedTodofuken) {
-        throw new BadRequestException('都道府県コードが存在しません。');
+        throw new BadRequestException(TODOFUKEN_CODE_NOT_FOUND_MESSAGE);
       }
     }
 
@@ -305,7 +316,7 @@ export class JaService {
         const updated = (await manager.save(next)) as Ja;
 
         await this.auditLog.logUpdate(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, updated.jaId),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_005, TABLE_NAME, updated.jaId),
           before,
           updated,
           manager,
@@ -323,12 +334,12 @@ export class JaService {
         }));
       return {
         ...toJaResponse(saved, tdForResponse?.todofukenName ?? ''),
-        message: '更新しました。',
+        message: SuccessMessage.UPDATED,
       };
     } catch (err) {
       // [audit-error-log] — ロールバックされた tx の外側で記録。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, jaId),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_005, TABLE_NAME, jaId),
         AuditOperation.UPDATE,
         err as Error,
       );
@@ -438,7 +449,7 @@ export class JaService {
     await assertNoRelatedRows(this.dataSource, RELATED_TABLES, 'ja_id', id);
 
     const ctxBuilder = (): AuditOperationContext =>
-      buildAuditCtx(session, req, SCREEN_NAME_SCR004, TABLE_NAME, id);
+      buildAuditCtx(session, req, ScreenName.ACSMS_SCR_004, TABLE_NAME, id);
 
     try {
       await this.dataSource.transaction(async (manager) => {
@@ -456,7 +467,7 @@ export class JaService {
         await this.auditLog.logDelete(ctxBuilder(), before, manager);
       });
 
-      return { message: '削除しました。' };
+      return { message: SuccessMessage.DELETED };
     } catch (err) {
       // [audit-error-log] — ロールバックされた tx の外側で記録し、業務書込が
       // 破棄されてもトレースを残す。

@@ -3,9 +3,9 @@
 // Mirrors docs/design/ACSMS-SCR-019/ACSMS-SCR-019-api.md:
 //   - ACSMS-API-019-001: GET /api/v1/hanbaiten/import/template (binary XLSX)
 //   - ACSMS-API-019-002: POST /api/v1/hanbaiten/import (3 import modes)
-// And the 23-column physical layout from §テンプレートファイル仕様.
+// And the 24-column physical layout from §テンプレートファイル仕様.
 
-// ─── 23-column shared layout ──────────────────────────────────────────
+// ─── 24-column shared layout ──────────────────────────────────────────
 
 /**
  * Japanese display headers in the canonical order — these are what the
@@ -19,6 +19,7 @@ export const HANBAITEN_IMPORT_JP_HEADERS = [
   '販売店名称',
   '販売店名称（カナ）',
   'インボイス番号',
+  '都道府県コード',
   '郵便番号',
   '住所',
   '電話番号',
@@ -50,6 +51,7 @@ export const HANBAITEN_IMPORT_PHYSICAL_COLUMNS = [
   'hanbaiten_name',
   'hanbaiten_name_kana',
   'torihikisaki_no',
+  'todofuken_code',
   'yubin_no',
   'address',
   'tel',
@@ -98,6 +100,7 @@ export function buildImportRow(
     hanbaiten_name: '販売店A',
     hanbaiten_name_kana: 'ﾊﾝﾊﾞｲﾃﾝA',
     torihikisaki_no: 'T1234567890123',
+    todofuken_code: '13',
     yubin_no: '1300001',
     address: '東京都千代田区1-1-1',
     tel: '0312345678',

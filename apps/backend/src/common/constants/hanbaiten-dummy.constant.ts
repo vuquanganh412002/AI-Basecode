@@ -24,3 +24,10 @@
  * 値を書き写さないための共有。
  */
 export const HANBAITEN_DUMMY_CODE = '9999999999';
+
+/**
+ * ダミー販売店を紙版限定の文脈（Excel取込・ACSMS-SCR-015 統廃合置換）で
+ * 選択しようとした時の共通エラーメッセージ。両モジュールが個別に同一文言を
+ * ハードコードしていたのを集約（不具合修正2026-08）。
+ */
+export const HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE = `販売店コード「${HANBAITEN_DUMMY_CODE}」は電子版専用のダミー販売店のため、紙版では選択できません。`;

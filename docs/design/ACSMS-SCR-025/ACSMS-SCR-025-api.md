@@ -21,6 +21,7 @@ updated_by: Tran Duc Tuyen
 | 2   | 2026/07/14 | 1.1  | Tran Duc Tuyen | 所属支店(shiten_id)追加。登録/更新リクエストに shiten_id（role_id=5のみ有効・任意）、詳細/登録/更新レスポンスに shiten_id / shiten_name を追加（顧客要件2026-07） | Nguyen Huy Dat | Nguyen Huy Dat |
 | 3   | 2026/08/06 | 1.2  | Tran Duc Tuyen | 実装との差分補完：§4.5.1 を新設し、セキュリティ上重要な更新でのセッション全破棄（2026-07 のセキュリティレビュー対応）を記載。セッションのペイロード（permissions / role_code / ja_id 等）はログイン時に固定され SessionAuthGuard は DB を再検証しないため、破棄しないと降格・ロック・所属変更が既発行の cookie 保持者に反映されない（de-provisioning bypass）。破棄対象＝パスワード変更 / ロック(true) / ロール変更 / 所属スコープ変更。ロック解除(false)・氏名/メール/備考のみの変更では破棄しない（解除操作で管理者自身のセッションを切らないため）。コミット後のベストエフォートで、Redis 障害時も応答は成功のまま警告ログのみ | | |
 | 4   | 2026/08/17 | 1.3  | Tran Duc Tuyen | 実装コードとの再監査による差分修正：①エラー一覧の CONFLICT メッセージを実装（`ErrorMessage.CONFLICT`）に合わせ「関連データが存在するため処理を実行できません。」へ修正（ACSMS-SCR-024 api.md と同一文言に統一）。②各エラーレスポンス例の欠落していた末尾「。」を補完し、バリデーションエラー例「アカウント名称は必須です」を実際の DTO メッセージ「アカウント名は必須です。」へ修正。③更新APIの after_value 監査ログ例に欠落していた `account_lock_flg` を追加（前回セッションが中断し before_value のみ修正済みだった箇所を完了）。④§4.5.1 のセッション破棄対象表に `todofuken_code` を追加（2026-08-12 のバックエンドコードレビュー finding #8 対応 commit `0131b798` で isSecuritySensitiveUpdate() に追加されたが本書に未反映だった）。⑤登録APIレスポンス例の `updated_at` を実装（`updated_at` は NOT NULL DEFAULT NOW() で登録時に created_at と同時刻が設定される）に合わせ null から実際のタイムスタンプへ修正 | | |
+| 5   | 2026/08/20 | 1.4  | Tran Duc Tuyen | 不具合修正2026-08：所属支店(shiten_id)ドロップダウンが金融機関支店（口座振替用、`m_shiten.kinyu_shiten_flg=true`）を含めて表示してしまっていた。所属支店は購読者の配達担当支店を表す通常の支店選択欄であり金融機関支店ピッカーではないため、`GET /api/v1/shiten/dropdown` 呼び出しに `kinyu_shiten_flg=false` を指定し除外するよう修正（既存の口座振替データ出力(SCR-020)と同じ絞り込み方式）。共用API一覧に本画面が `ACSMS-API-COMMON-006` を使用する旨を追記（従来未記載だった） | | |
 
 ## システム概要
 
@@ -50,6 +51,7 @@ updated_by: Tran Duc Tuyen
 - ACSMS-API-COMMON-002: Get Roles Dropdown (`GET /api/v1/roles/dropdown`) — 定義元: ACSMS-SCR-024
 - ACSMS-API-COMMON-003: Get JA Dropdown (`GET /api/v1/ja/dropdown`) — 定義元: ACSMS-SCR-024
 - ACSMS-API-COMMON-004: Get Kanri Shiten Dropdown (`GET /api/v1/kanri-shiten/dropdown`) — 定義元: ACSMS-SCR-024
+- ACSMS-API-COMMON-006: Get Shiten Dropdown (`GET /api/v1/shiten/dropdown`) — 定義元: ACSMS-SCR-015。所属支店(shiten_id)欄用。`kinyu_shiten_flg=false` を指定し金融機関支店（口座振替用）を除外する（不具合修正2026-08）
 
 ## エラー一覧
 

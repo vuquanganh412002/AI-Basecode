@@ -83,19 +83,33 @@ describe('AppHeader', () => {
   // displayName + logout
   // ───────────────────────────────────────────────────────────────────
   describe('displayName + logout', () => {
-    it('should render login_id:role_name when both are present in the user payload', async () => {
+    it('should render account_name (login_id): role_name when a user is present', async () => {
       const { wrapper } = await renderHeader({
-        user: buildUser({ login_id: 'admin01', role_name: '日農（管理者）' }),
+        user: buildUser({ account_name: '管理者太郎', login_id: 'admin01', role_name: '日農（管理者）' }),
       });
       await flushPromises();
-      expect(wrapper.text()).toContain('admin01');
-      expect(wrapper.text()).toContain('日農（管理者）');
+      expect(wrapper.text()).toContain('管理者太郎 (admin01): 日農（管理者）');
     });
 
     it('should render ゲスト when user is null', async () => {
       const { wrapper } = await renderHeader({ user: null });
       await flushPromises();
       expect(wrapper.text()).toContain('ゲスト');
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────
+  // 通知ベルアイコンは顧客CR (2026-08-24) により削除
+  // ───────────────────────────────────────────────────────────────────
+  describe('notification bell removal', () => {
+    it('should NOT render a 通知 (notification) button', async () => {
+      const { wrapper } = await renderHeader();
+      await flushPromises();
+      expect(wrapper.find('[aria-label="通知"]').exists()).toBe(false);
+      const hasBellIcon = wrapper
+        .findAll('.material-icons')
+        .some((el) => el.text() === 'notifications');
+      expect(hasBellIcon).toBe(false);
     });
   });
 
@@ -312,13 +326,13 @@ describe('AppHeader', () => {
       const restore = stubHeaderWidth(1200);
       try {
         const { wrapper } = await renderHeader({
-          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+          user: buildUser({ account_name: '本店太郎', login_id: '1013300000', role_name: 'JA本店' }),
         });
         await flushPromises();
         // ヘッダー側に出ている
         const headerName = wrapper.find('[data-test="account-name-header"]');
         expect(headerName.exists()).toBe(true);
-        expect(headerName.text()).toBe('1013300000:JA本店');
+        expect(headerName.text()).toBe('本店太郎 (1013300000): JA本店');
         // ドロップダウン側の複製は無い
         expect(wrapper.find('[data-test="account-info"]').exists()).toBe(false);
       } finally {
@@ -332,7 +346,7 @@ describe('AppHeader', () => {
       const restore = stubHeaderWidth(842);
       try {
         const { wrapper } = await renderHeader({
-          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+          user: buildUser({ account_name: '本店太郎', login_id: '1013300000', role_name: 'JA本店' }),
         });
         await flushPromises();
         expect(wrapper.find('[data-test="account-name-header"]').exists()).toBe(true);
@@ -346,7 +360,7 @@ describe('AppHeader', () => {
       const restore = stubHeaderWidth(600);
       try {
         const { wrapper } = await renderHeader({
-          user: buildUser({ login_id: '1013300000', role_name: 'JA本店' }),
+          user: buildUser({ account_name: '本店太郎', login_id: '1013300000', role_name: 'JA本店' }),
         });
         await flushPromises();
         // ヘッダー側は消えている
@@ -354,7 +368,7 @@ describe('AppHeader', () => {
         // 代わりにドロップダウンに出ている
         const info = wrapper.find('[data-test="account-info"]');
         expect(info.exists()).toBe(true);
-        expect(info.text()).toBe('1013300000:JA本店');
+        expect(info.text()).toBe('本店太郎 (1013300000): JA本店');
       } finally {
         restore();
       }

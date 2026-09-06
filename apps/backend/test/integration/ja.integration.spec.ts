@@ -578,6 +578,59 @@ describe('JA module — integration (pg-mem + ioredis-mock)', () => {
         .expect(409);
     });
 
+    it('should return 409 CONFLICT when t_oshirase has related rows', async () => {
+      // COVERS: 4.4 関連データチェック — お知らせ（不具合修正2026-08）
+      await ctx.dataSource.query(`
+        INSERT INTO t_oshirase
+          (ja_id, oshirase_type, publish_location, status, title, content,
+           publish_start_date, created_by, updated_by)
+        VALUES
+          (1, 1, 1, 2, '関連お知らせ', '本文', NOW(), 'SYSTEM', 'SYSTEM')
+      `);
+      const sid = await asAdmin();
+
+      const res = await http()
+        .delete('/api/v1/ja/1')
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(409);
+
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const [row] = await ctx.dataSource.query(`SELECT deleted_at FROM m_ja WHERE ja_id = 1`);
+      expect(row.deleted_at).toBeNull();
+    });
+
+    it('should return 409 CONFLICT when t_dokusya_rireki has related rows (append-only, no deleted_at)', async () => {
+      // COVERS: 4.4 関連データチェック — 購読者履歴（不具合修正2026-08。
+      // t_dokusya が空でも履歴テーブルに残っていれば 409 にする）
+      // t_dokusya と異なり t_dokusya_rireki はここでは stub 化されておらず
+      // TypeORM synchronize による本物のスキーマ（NOT NULL 列あり）なので、
+      // 最低限の必須列を埋める。
+      await ctx.dataSource.query(`
+        INSERT INTO t_dokusya_rireki
+          (dokusya_id, rireki_no, ja_id, kanri_shiten_id, dokusya_shubetsu, tetsuzuki_shurui,
+           shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+           yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1,
+           shiharai_hoho, dokusya_kaishi_date)
+        VALUES
+          (1, 1, 1, 1, 1, 1,
+           'テスト', '太郎', 'テスト', 'タロウ',
+           '1000001', '13', '千代田区', '1-1-1', '0312345678',
+           1, '2026-01-01')
+      `);
+      const sid = await asAdmin();
+
+      const res = await http()
+        .delete('/api/v1/ja/1')
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(409);
+
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const [row] = await ctx.dataSource.query(`SELECT deleted_at FROM m_ja WHERE ja_id = 1`);
+      expect(row.deleted_at).toBeNull();
+    });
+
     it('should NOT write a success t_log row when conflict check fails', async () => {
       // COVERS: 409 path — no operation='DELETE' result_status=1 row produced
       await ctx.dataSource.query(`

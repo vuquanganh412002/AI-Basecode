@@ -191,6 +191,41 @@ describe('SessionService', () => {
       expect(ttl).toBeLessThanOrEqual(3000);
     });
 
+    it('should destroy the session and return null when both expires_at and created_at are missing/unparseable', async () => {
+      // Corrupted or hand-edited payload with neither timestamp readable —
+      // deadlineOf() falls all the way through to `return 0` (treated as
+      // already-expired rather than granted an extension).
+      redis.get.mockResolvedValue(
+        JSON.stringify({
+          ...buildBasePayload(),
+          created_at: 'not-a-date',
+          last_activity_at: 'not-a-date',
+          expires_at: 'not-a-date',
+        }),
+      );
+
+      const result = await service.touch('sid');
+
+      expect(result).toBeNull();
+      expect(redis.setEx).not.toHaveBeenCalled();
+      expect(redis.del).toHaveBeenCalledWith('session:sid');
+    });
+
+    it('should still return null when destroying an expired session fails (destroy error swallowed)', async () => {
+      const createdAt = new Date(Date.now() - 7200_000); // 2h ago, 1h window
+      redis.get.mockResolvedValue(
+        JSON.stringify({
+          ...buildBasePayload(),
+          created_at: createdAt.toISOString(),
+          last_activity_at: createdAt.toISOString(),
+          expires_at: new Date(createdAt.getTime() + 3600_000).toISOString(),
+        }),
+      );
+      redis.del.mockRejectedValueOnce(new Error('redis down'));
+
+      await expect(service.touch('sid')).resolves.toBeNull();
+    });
+
     it('should leave the account index TTL alone', async () => {
       // create() already pushes the index to "newest login + ttl", which is at
       // or beyond every session's own deadline. Re-expiring it here to this

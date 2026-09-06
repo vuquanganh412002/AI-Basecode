@@ -68,14 +68,15 @@ reviewer: Nguyen Huy Dat
 
 # カテゴリ 1: アクセス権限制御（Access Control）
 
-## ACSMS-TC-007-001 — NICHINO_ADMIN による支店マスタ登録画面アクセス禁止
+## ACSMS-TC-007-001 — NICHINO_ADMIN による支店マスタ登録画面アクセス許可（JA代行入力）
 
 - 観点ID: VP-A-01
-- 種類: Abnormal (異常)
+- 種類: Normal (正常)
 - 前提条件:
   - ・role: NICHINO_ADMIN
   - ・ログイン済 + MFA認証済
-  - ・権限 `shiten.view` / `shiten.create` / `shiten.update` を保持しない（seeder.md §3 マトリクス参照）
+  - ・権限 `shiten.view` / `shiten.create` / `shiten.update` を保持する（顧客CR 2026-08-24 で正式付与、seeder.md §3 マトリクス参照）
+  - ・session.ja_id は null（NICHINO_ADMIN はどの JA にも属さない）
 
 ### 手順
 
@@ -86,28 +87,29 @@ reviewer: Nguyen Huy Dat
 ブラウザのアドレスバーに `/shiten/create` を入力し、直接アクセス
 
 ステップ3：
-DevTools の Console から POST `/api/v1/shiten` を有効なリクエストボディで送信
+フォーム上部に表示される「JA名」（BaseJaDropdown）で対象JAを選択せず登録ボタンを押す
 
 ステップ4：
-DB 確認: `SELECT * FROM t_log WHERE result_status = 2 AND target_table = 'm_shiten' ORDER BY log_datetime DESC LIMIT 1`
+「JA名」で対象JAを選択後、必須項目を入力し POST `/api/v1/shiten` を送信
 
 ### 期待結果
 
 ステップ1：
-サイドバーに「支店マスタ」項目が表示されないこと（権限 `shiten.view` を持たないため）
+サイドバーに「支店マスタ」項目が表示されること（権限 `shiten.view` を保持するため）
 
 ステップ2：
-トースト `アクセス権がありません。` が表示されること、かつ `/dashboard` へ遷移すること
+`/shiten/create` 登録画面が表示されること。フォーム上部に必須の「JA名」（BaseJaDropdown）項目が表示されること（JA スコープの3ロールには表示されない — [staff-ja-id] 代行入力専用UI）
 
 ステップ3：
-HTTPステータスコード403が返却されること（`error_code: FORBIDDEN`、メッセージ `この画面へのアクセス権限がありません。`）
+クライアント側検証で「JA名」に必須エラー（`必須項目です。`）が表示され、送信されないこと
 
 ステップ4：
-エラーログが1行以上記録されること、`account_id` がテストアカウントと一致すること、`m_shiten` に新規行が追加されないこと
+HTTPステータスコード201が返却され、`m_shiten` に選択したJAの `ja_id` で新規行が追加されること。`GET /api/v1/shiten/dropdown` 系（管理支店 dropdown）が選択したJAにスコープされ再取得されること
 
 補足：
-・フロントエンド側メニュー、フロントエンド側ルーターガード、バックエンド側 APIガードの3層すべてでアクセスが制御されること
-・seeder.md §3 マトリクスにより 支店マスタは CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN のみ操作可。NICHINO_ADMIN は対象外。
+・フロントエンド側メニュー、フロントエンド側ルーターガード、バックエンド側 APIガードの3層すべてで一貫してアクセスが許可されること
+・BE は `dto.ja_id`（代行入力）を受理するが、JAスコープの3ロール（CHUOKAI / JA_HONTEN / JA_KANRI_SHITEN）が同フィールドを送っても無視し常に session.ja_id を使う（クロステナント注入ガード、shiten.service.ts `create()`）
+・NICHINO_STAFF は本CRの対象外 — 依然 `shiten.*` 権限を保持せずアクセス禁止のまま
 
 ### テスト結果（1回目）
 

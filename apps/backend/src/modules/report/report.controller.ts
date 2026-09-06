@@ -148,6 +148,50 @@ export class ReportController {
     res.status(HttpStatus.OK).send(result.buffer);
   }
 
+  // ─── ACSMS-API-028-003 — POST /api/v1/report/zougen-hanbaiten/export-excel ──
+  @Post('zougen-hanbaiten/export-excel')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('report.export_zougen_hanbaiten')
+  @ApiOperation({ summary: '増減連絡票（販売店）Excel出力 — ACSMS-API-028-003' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Excel file (.xlsx) as attachment。対象0件のときは application/json で { data: { reports: [] } } を返す。',
+    content: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': {},
+      'application/json': {},
+    },
+  })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  async exportZougenHanbaitenExcel(
+    @Body() body: ZougenHanbaitenQueryDto,
+    @Req() req: Request & { user?: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const session = req.user as SessionPayload;
+    const result = await this.reportService.exportZougenHanbaitenExcel(
+      body,
+      session,
+      req,
+    );
+    // 対象0件 → Excelは生成せず 200 + 空配列(JSON)で応答する（PDF export と同じ）。
+    if (result.empty) {
+      res.status(HttpStatus.OK).json({ data: { reports: [] } });
+      return;
+    }
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    // ASCII別名は filename、日本語名は RFC 5987 の filename* に設定する。
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${result.asciiFilename}"; filename*=UTF-8''${encodeURIComponent(result.filename)}`,
+    );
+    res.status(HttpStatus.OK).send(result.buffer);
+  }
+
   // ─── ACSMS-API-029-001 — GET /api/v1/report/zougen-nichino/preview ────
   @Get('zougen-nichino/preview')
   @HttpCode(HttpStatus.OK)
@@ -200,6 +244,45 @@ export class ReportController {
       return;
     }
     // PDFは S3 保存 + メール通知のみ（ブラウザはダウンロードしない）。
+    res.status(HttpStatus.OK).json({
+      data: {
+        file_name: result.fileName,
+        recipient_count: result.recipientCount,
+      },
+    });
+  }
+
+  // ─── ACSMS-API-029-003 — POST /api/v1/report/zougen-nichino/export-excel ──
+  @Post('zougen-nichino/export-excel')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('report.export_zougen_nichino')
+  @ApiOperation({ summary: '増減通知（日本農業新聞）Excel出力 — ACSMS-API-029-003' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Excelはブラウザへ返さず S3 へ保存し日農担当者へメール通知する。' +
+      '成功時は { data: { file_name, recipient_count } }。' +
+      '対象0件のときは { data: { reports: [] } }。',
+    content: { 'application/json': {} },
+  })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  async exportZougenNichinoExcel(
+    @Body() body: ZougenNichinoQueryDto,
+    @Req() req: Request & { user?: SessionPayload },
+    @Res() res: Response,
+  ): Promise<void> {
+    const session = req.user as SessionPayload;
+    const result = await this.reportService.exportZougenNichinoExcel(
+      body,
+      session,
+      req,
+    );
+    if (result.empty) {
+      res.status(HttpStatus.OK).json({ data: { reports: [] } });
+      return;
+    }
+    // Excelは S3 保存 + メール通知のみ（ブラウザはダウンロードしない）。
     res.status(HttpStatus.OK).json({
       data: {
         file_name: result.fileName,

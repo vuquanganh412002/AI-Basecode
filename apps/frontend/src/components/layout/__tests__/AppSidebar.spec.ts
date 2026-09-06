@@ -23,6 +23,8 @@ import type { User } from '@/types';
 const ADMIN_PERMS = [
   'ja.create', 'ja.view', 'ja.update', 'ja.delete',
   'kanri_shiten.create', 'kanri_shiten.view', 'kanri_shiten.update', 'kanri_shiten.delete',
+  // 顧客CR 2026-08-24 — 支店マスタの権限を日農管理者に正式付与。
+  'shiten.create', 'shiten.view', 'shiten.update', 'shiten.delete',
   'account.create', 'account.view', 'account.update', 'account.delete',
   'oshirase.create', 'oshirase.view', 'oshirase.update', 'oshirase.delete',
   'file.upload', 'file.download', 'log.view', 'role.view',
@@ -121,6 +123,8 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).toContain('メニュー');
       expect(labels).toContain('JAマスタ');
       expect(labels).toContain('管理支店マスタ');
+      // 顧客CR 2026-08-24 — 支店マスタの権限を日農管理者に付与。
+      expect(labels).toContain('支店マスタ');
       expect(labels).toContain('ファイルアップロード');
       expect(labels).toContain('ファイルダウンロード');
       expect(labels).toContain('ログ参照');
@@ -135,7 +139,6 @@ describe('AppSidebar — permission-driven visibility', () => {
       expect(labels).not.toContain('販売店情報登録');
       expect(labels).not.toContain('販売店代行入力');
       expect(labels).not.toContain('単価マスタ');
-      expect(labels).not.toContain('支店マスタ');
       expect(labels).not.toContain('口座振替データ出力');
       expect(labels).not.toContain('購読者名簿');
     });

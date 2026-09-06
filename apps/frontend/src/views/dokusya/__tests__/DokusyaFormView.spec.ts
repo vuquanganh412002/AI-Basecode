@@ -49,6 +49,7 @@ vi.mock('@/api/dokusya/dokusya', () => ({
   updateDokusya: vi.fn(),
   approveDokusya: vi.fn(),
   rejectDokusya: vi.fn(),
+  registerTankaDokusya: vi.fn(),
   getDokusyaHistory: vi.fn(),
 }));
 
@@ -369,7 +370,7 @@ describe('DokusyaFormView — initial render (機能定義 1.x)', () => {
 
   it.each([
     [['管理支店', '支店', '組合員コード']],
-    [['連絡先', 'メールアドレス', 'メールマガジン']],
+    [['TEL1', 'メールアドレス', 'メールマガジン']],
     [['販売店コード', '販売店名', '郵送区分']],
     // 購読中止日は create モードでは撤去（編集のみ表示）。
     [['購読開始日', '備考']],
@@ -1805,6 +1806,53 @@ describe('DokusyaFormView — required field validation (機能定義 2.3)', () 
     expect(wrapper.text()).toContain('500');
     expect(createDokusya).not.toHaveBeenCalled();
   });
+
+  it('should NOT block submit when 電子版 even if biko line 1 exceeds 30 chars (行別チェック撤廃・紙版と統一, 顧客要件2026-08-26)', async () => {
+    const { wrapper } = await renderView();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({
+      dokusya_shubetsu: 2,
+      biko: 'あ'.repeat(31),
+    }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalled();
+  });
+
+  it('should NOT block submit when 紙版 even if biko line 1 exceeds 30 chars (電子版へ連携されないため対象外)', async () => {
+    const { wrapper } = await renderView();
+    const { createDokusya } = await import('@/api/dokusya/dokusya');
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({
+      dokusya_shubetsu: 1,
+      biko: 'あ'.repeat(31),
+    }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(createDokusya).toHaveBeenCalled();
+  });
+
+  it('should NOT render the per-line biko counter panel/hint regardless of 購読種別 (顧客要件2026-08-26)', async () => {
+    const { wrapper } = await renderView();
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateDokusyaForm({ dokusya_shubetsu: 1 }));
+    await flushPromises();
+    expect(wrapper.find('[data-test="biko-remark-panel"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="biko-remark-hint"]').exists()).toBe(false);
+
+    await fillForm(vm, buildCreateDokusyaForm({ dokusya_shubetsu: 2 }));
+    await flushPromises();
+    expect(wrapper.find('[data-test="biko-remark-panel"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="biko-remark-hint"]').exists()).toBe(false);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -2987,6 +3035,186 @@ describe('DokusyaFormView — approve / reject flow (機能定義 3.x / 4.x)', (
 
     expect(approveDokusya).not.toHaveBeenCalled();
     expect(vm.fieldErrors.hikiotoshi_koza_no).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// 11.5. 単価初回登録 (denshi_shonin_status=NULL 専用・不具合修正2026-08)
+//
+// 承認/否認ワークフロー自体が存在しないカテゴリ（電子版クレジットカード・
+// 併読・電子版無料会員）は tanka_id=null のまま電子版から同期される。
+// tanka_id が未登録の間は専用ボタン「承認・登録」だけを出し、単価のみ編集可能
+// にする。tanka_id が既に登録済みなら従来どおり完全 read-only のまま。
+// ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaFormView — 単価初回登録 (denshi_shonin_status=NULL・不具合修正2026-08)', () => {
+  function fieldDisabled(wrapper: VueWrapper, name: string): boolean {
+    const item = wrapper
+      .findAllComponents({ name: 'AFormItem' })
+      .find((it) => it.props('name') === name);
+    if (!item) return false;
+    const input = item.find('input');
+    if (input.exists() && (input.element as HTMLInputElement).disabled) return true;
+    return item.find('.ant-select-disabled').exists();
+  }
+
+  async function renderCreditCardNoTanka() {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        shiharai_hoho: 6,
+        denshi_shonin_status: null,
+        tanka_id: null,
+      }),
+    });
+    return renderView({ dokusyaId: 100 });
+  }
+
+  it('should show the 承認・登録 button (not the normal 更新 button, not the mode bar) for 電子版クレカ with tanka_id=null', async () => {
+    const { wrapper } = await renderCreditCardNoTanka();
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    expect(registerBtn).toBeDefined();
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('当日変更');
+    expect(wrapper.text()).not.toContain('予約変更');
+  });
+
+  it('should show the 承認・登録 button for 併読(3) with tanka_id=null', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 3,
+        denshi_shonin_status: null,
+        tanka_id: null,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    expect(registerBtn).toBeDefined();
+  });
+
+  it('should show the 承認・登録 button for 電子版無料会員(denshi_dokusya_shubetsu=0) with tanka_id=null', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        denshi_dokusya_shubetsu: 0,
+        shiharai_hoho: 9,
+        denshi_shonin_status: null,
+        tanka_id: null,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    expect(registerBtn).toBeDefined();
+  });
+
+  it('should keep 新聞単価 editable but lock 支払方法 + the 4 引落口座 fields', async () => {
+    const { wrapper } = await renderCreditCardNoTanka();
+    expect(fieldDisabled(wrapper, 'tanka_id')).toBe(false);
+    for (const name of [
+      'shiharai_hoho',
+      'bank_shiten_id',
+      'hikiotoshi_yokin_shubetsu',
+      'hikiotoshi_koza_no',
+      'hikiotoshi_koza_meigi',
+    ]) {
+      expect(fieldDisabled(wrapper, name)).toBe(true);
+    }
+  });
+
+  it('should require 新聞単価 selection before calling registerTankaDokusya', async () => {
+    const { registerTankaDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(registerTankaDokusya).mockClear();
+
+    const { wrapper } = await renderCreditCardNoTanka();
+    const vm = wrapper.vm as any;
+    vm.formState.tanka_id = null;
+    await flushPromises();
+
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await registerBtn!.trigger('click');
+    await flushPromises();
+
+    expect(registerTankaDokusya).not.toHaveBeenCalled();
+    expect(vm.fieldErrors.tanka_id).toBeTruthy();
+  });
+
+  it('should call registerTankaDokusya with the selected tanka_id, keep denshi_shonin_status untouched, and navigate to DokusyaList', async () => {
+    const { registerTankaDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(registerTankaDokusya).mockClear();
+    vi.mocked(registerTankaDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ tanka_id: 5, denshi_shonin_status: null }),
+      message: '登録しました。',
+    });
+
+    const { wrapper, router } = await renderCreditCardNoTanka();
+    const vm = wrapper.vm as any;
+    vm.formState.tanka_id = 5;
+    await flushPromises();
+    const pushSpy = vi.spyOn(router, 'push');
+
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await registerBtn!.trigger('click');
+    await flushPromises();
+
+    expect(registerTankaDokusya).toHaveBeenCalledTimes(1);
+    expect(registerTankaDokusya).toHaveBeenCalledWith(100, { tanka_id: 5 });
+    const pushed = JSON.stringify(pushSpy.mock.calls.flatMap((c) => c));
+    expect(pushed).toContain('DokusyaList');
+  });
+
+  it('should show 「登録しました。」 toast when registerTankaDokusya succeeds', async () => {
+    const { registerTankaDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(registerTankaDokusya).mockResolvedValue({
+      data: buildDokusyaDetail({ tanka_id: 5, denshi_shonin_status: null }),
+      message: '登録しました。',
+    });
+    const successSpy = vi.spyOn(message, 'success');
+    successSpy.mockClear();
+
+    const { wrapper } = await renderCreditCardNoTanka();
+    const vm = wrapper.vm as any;
+    vm.formState.tanka_id = 5;
+    await flushPromises();
+
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    await registerBtn!.trigger('click');
+    await flushPromises();
+
+    expect(successSpy).toHaveBeenCalledWith('登録しました。');
+  });
+
+  it('should remain fully read-only (disabled 更新 button, no 承認・登録 button) once tanka_id is already registered — unaffected by this feature', async () => {
+    const { getDokusya } = await import('@/api/dokusya/dokusya');
+    vi.mocked(getDokusya).mockResolvedValueOnce({
+      data: buildDokusyaDetail({
+        dokusya_shubetsu: 2,
+        shiharai_hoho: 6,
+        denshi_shonin_status: null,
+        tanka_id: 1,
+      }),
+    });
+    const { wrapper } = await renderView({ dokusyaId: 100 });
+    const registerBtn = wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('承認') && !b.text().includes('承認しない'));
+    expect(registerBtn).toBeUndefined();
+    const submitBtn = wrapper.find('button[type="submit"]');
+    expect(submitBtn.exists()).toBe(true);
+    expect((submitBtn.element as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

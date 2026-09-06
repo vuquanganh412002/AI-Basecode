@@ -320,6 +320,37 @@ describe('ACSMS-SCR-002 integration — tanka endpoints', () => {
         .expect(409);
     });
 
+    it('should return 409 CONFLICT when t_dokusya_rireki references the tanka (append-only, no deleted_at, 不具合修正2026-08)', async () => {
+      const sid = await asChuokai(1);
+      const id = await getTankaIdByCode('T001');
+      // t_dokusya_rireki is a full TypeORM-synchronized entity (not stubbed
+      // here) — provide every NOT NULL column so the INSERT succeeds.
+      await ctx.dataSource.query(
+        `INSERT INTO t_dokusya_rireki
+           (dokusya_id, rireki_no, ja_id, kanri_shiten_id, tanka_id, dokusya_shubetsu, tetsuzuki_shurui,
+            shimei_sei, shimei_mei, shimei_kana_sei, shimei_kana_mei,
+            yubin_no, todofuken_code, shikuchoson, chome_banchi, renrakusaki_1,
+            shiharai_hoho, dokusya_kaishi_date)
+         VALUES
+           (1, 1, 1, 1, $1, 1, 1,
+            'テスト', '太郎', 'テスト', 'タロウ',
+            '1000001', '13', '千代田区', '1-1-1', '0312345678',
+            1, '2026-01-01')`,
+        [id],
+      );
+      const res = await http()
+        .delete(apiUrl(`tanka/${id}`))
+        .set('Cookie', [buildSessionCookie(ctx.app, sid)])
+        .expect(409);
+      expect(res.body.error_code).toBe('CONFLICT');
+
+      const [row] = await ctx.dataSource.query(
+        `SELECT deleted_at FROM m_tanka WHERE tanka_id = $1`,
+        [id],
+      );
+      expect(row.deleted_at).toBeNull();
+    });
+
     it('should leave m_tanka row untouched when conflict-check rejects', async () => {
       const sid = await asChuokai(1);
       const id = await getTankaIdByCode('T001');

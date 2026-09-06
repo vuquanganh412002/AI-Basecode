@@ -11,6 +11,8 @@ import { FileArchiveService } from '@/modules/file-archive/file-archive.service'
 import type { SessionPayload } from '@/modules/auth/session.service';
 import { buildAuditCtx } from '@/common/utils/audit-context';
 import { ZEI_KUBUN_UCHIZEI } from '@/common/constants/zei-kubun.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { FILE_DOWNLOAD_TARGET_TABLE } from '@/common/constants/audit-target-table.constant';
 import { AuditOperation, DownloadType, LogType } from '@/common/enums';
 
 import { InactiveTankaReferencedException } from '@/common/exceptions/inactive-tanka-referenced.exception';
@@ -25,11 +27,9 @@ import {
   type InactiveHaitatsuryoTankaRow,
 } from './haitatsuryo.mapper';
 
-const SCREEN_NAME = '配達手数料支払情報出力画面 (ACSMS-SCR-021)';
 // 失効単価参照エラー（error gate）の案内文（ACSMS-SCR-021 専用・顧客要件2026-07）。
 const INACTIVE_TANKA_MESSAGE =
   '失効した配達手数料単価を参照している販売店が存在するため、配達手数料支払情報を出力できません。該当販売店の単価を変更してから再度実行してください。';
-const TABLE_NAME = 't_file_download';
 const XLSX_MIME =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const SHEET_NAME = '配達手数料支払情報';
@@ -136,8 +136,8 @@ export class HaitatsuryoService {
       const ctx = buildAuditCtx(
         session,
         req,
-        SCREEN_NAME,
-        TABLE_NAME,
+        ScreenName.ACSMS_SCR_021,
+        FILE_DOWNLOAD_TARGET_TABLE,
         archived.fileDownloadId,
       );
       // 個人情報は含めず、出力条件と件数のみを記録する（4.6）。
@@ -164,7 +164,7 @@ export class HaitatsuryoService {
       // トランザクション外で記録する（4.8）。
       if (err instanceof InactiveTankaReferencedException) throw err;
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, null),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_021, FILE_DOWNLOAD_TARGET_TABLE, null),
         AuditOperation.CREATE,
         err as Error,
       );
@@ -234,9 +234,11 @@ export class HaitatsuryoService {
 
     const header = [
       '対象月',
+      '委託区分',
       '販売店コード',
       '販売店名',
       '当月部数',
+      '単価',
       '当月金額',
       '支払サイクル',
       '金融機関コード',
@@ -260,9 +262,14 @@ export class HaitatsuryoService {
     for (const row of preview.data) {
       sheet.addRow([
         row.target_month,
+        row.itaku_kubun == null
+          ? ''
+          : (this.codeService?.getLabel('ITAKU_KUBUN', row.itaku_kubun) ??
+            String(row.itaku_kubun)),
         row.hanbaiten_code,
         row.hanbaiten_name,
         row.total_busu,
+        row.tesuryo,
         row.total_kingaku,
         row.haitatsuryo_shiharai_cycle ?? '',
         row.bank_code,
@@ -291,7 +298,9 @@ export class HaitatsuryoService {
       '合計',
       '',
       '',
+      '',
       preview.meta.grand_total_busu,
+      '',
       preview.meta.grand_total_kingaku,
     ]);
     totalRow.font = { bold: true };

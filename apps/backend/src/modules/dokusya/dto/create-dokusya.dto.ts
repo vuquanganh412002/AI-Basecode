@@ -120,11 +120,11 @@ export class CreateDokusyaDto {
   @IsInt({ message: '支店IDは整数で指定してください。' })
   shiten_id?: number | null;
 
-  @ApiPropertyOptional({ description: '組合員コード', maxLength: 20 })
+  @ApiPropertyOptional({ description: '組合員コード', maxLength: 10 })
   @Transform(blankToUndef)
   @IsOptional()
   @IsString({ message: '組合員コードは文字列で指定してください。' })
-  @MaxLength(20, { message: '組合員コードは最大20文字で指定してください。' })
+  @MaxLength(10, { message: '組合員コードは最大10文字で指定してください。' })
   kumiaiin_code?: string;
 
   @ApiProperty({
@@ -210,17 +210,19 @@ export class CreateDokusyaDto {
   @MaxLength(100, { message: '建物名は最大100文字で指定してください。' })
   tatemono_mei?: string;
 
-  @ApiProperty({ description: '連絡先1 (電話番号)', maxLength: 15 })
-  @IsString({ message: '連絡先1は文字列で指定してください。' })
-  @IsNotEmpty({ message: '連絡先1は必須です。' })
-  @MaxLength(15, { message: '連絡先1は最大15文字で指定してください。' })
+  @ApiProperty({ description: 'TEL1 (電話番号)', maxLength: 15 })
+  @IsString({ message: 'TEL1は文字列で指定してください。' })
+  @IsNotEmpty({ message: 'TEL1は必須です。' })
+  @MaxLength(15, { message: 'TEL1は最大15文字で指定してください。' })
+  @Matches(/^\d+$/, { message: 'TEL1は半角数字のみで入力してください（ハイフン不可）。' })
   renrakusaki_1!: string;
 
-  @ApiPropertyOptional({ description: '連絡先2 (電話番号)', maxLength: 15 })
+  @ApiPropertyOptional({ description: 'TEL2 (電話番号)', maxLength: 15 })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '連絡先2は文字列で指定してください。' })
-  @MaxLength(15, { message: '連絡先2は最大15文字で指定してください。' })
+  @IsString({ message: 'TEL2は文字列で指定してください。' })
+  @MaxLength(15, { message: 'TEL2は最大15文字で指定してください。' })
+  @Matches(/^\d+$/, { message: 'TEL2は半角数字のみで入力してください（ハイフン不可）。' })
   renrakusaki_2?: string;
 
   @ApiPropertyOptional({
@@ -327,21 +329,27 @@ export class CreateDokusyaDto {
   })
   haitatsu_tatemono_mei?: string;
 
-  @ApiPropertyOptional({ description: '配達先 連絡先1', maxLength: 15 })
+  @ApiPropertyOptional({ description: '配達先 TEL1', maxLength: 15 })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '配達先 連絡先1は文字列で指定してください。' })
+  @IsString({ message: '配達先 TEL1は文字列で指定してください。' })
   @MaxLength(15, {
-    message: '配達先 連絡先1は最大15文字で指定してください。',
+    message: '配達先 TEL1は最大15文字で指定してください。',
+  })
+  @Matches(/^\d+$/, {
+    message: '配達先 TEL1は半角数字のみで入力してください（ハイフン不可）。',
   })
   haitatsu_renrakusaki_1?: string;
 
-  @ApiPropertyOptional({ description: '配達先 連絡先2', maxLength: 15 })
+  @ApiPropertyOptional({ description: '配達先 TEL2', maxLength: 15 })
   @Transform(blankToUndef)
   @IsOptional()
-  @IsString({ message: '配達先 連絡先2は文字列で指定してください。' })
+  @IsString({ message: '配達先 TEL2は文字列で指定してください。' })
   @MaxLength(15, {
-    message: '配達先 連絡先2は最大15文字で指定してください。',
+    message: '配達先 TEL2は最大15文字で指定してください。',
+  })
+  @Matches(/^\d+$/, {
+    message: '配達先 TEL2は半角数字のみで入力してください（ハイフン不可）。',
   })
   haitatsu_renrakusaki_2?: string;
 

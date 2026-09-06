@@ -339,13 +339,15 @@ defineExpose({ formState });
         </p>
         <!-- 電子版ダミー販売店は候補に出さない（顧客要件 2026-08）。ダミーは
              電子版読者の受け皿であって実在の販売店ではなく、販売店別名簿の
-             集計対象（紙版のみ）にも入らないため、選ばせると必ず0件になる。 -->
+             集計対象（紙版のみ）にも入らないため、選ばせると必ず0件になる。
+             廃店（haiten_flg=true）も候補から除外する（顧客要件 2026-08-26）。 -->
         <BaseHanbaitenSelect
           id="meibo-hanbaiten-select"
           v-model:value="formState.hanbaiten_ids"
           placeholder="販売店を選択（1件以上）"
           allow-select-all
           dummy="exclude"
+          active-only
           data-test="hanbaiten-select"
         />
       </div>

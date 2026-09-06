@@ -12,6 +12,7 @@
 // the location changed (merged from __tests__/ into this file so the
 // module follows "1 source = 1 spec file").
 
+import { BadRequestException } from '@nestjs/common';
 import {
   ConflictException,
   DuplicateCodeException,
@@ -72,6 +73,7 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       getRawMany: jest.fn().mockResolvedValue([]),
       getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getCount: jest.fn().mockResolvedValue(0),
     };
     repo = {
       findOne: jest.fn(),
@@ -452,27 +454,24 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       expect(softDelete).toBeDefined();
     });
 
-    it('should bind haiten_flg=false (営業中のみ) by default when haiten_flg param omitted', async () => {
-      // COVERS: §4.3 — exact-match semantic (customer 2026-05-26). Omitted
-      // query.haiten_flg → only stores where haiten_flg = false.
+    it('should exclude 廃店 rows (haiten_flg=false only) by default when haiten_flg param omitted', async () => {
+      // COVERS: §4.3 — inclusive semantic (顧客CR 2026-08-24, revert of the
+      // 2026-05-26 exact-match change). Omitted query.haiten_flg → only
+      // active stores (haiten_flg=false).
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll({} as any, buildChuokaiSession({ ja_id: 1 }));
 
       const haitenCall = qbMock.andWhere.mock.calls.find(
-        ([sql, params]: any[]) =>
-          typeof sql === 'string' &&
-          /haiten_flg\s*=\s*:haitenFlg/i.test(sql) &&
-          params &&
-          Object.prototype.hasOwnProperty.call(params, 'haitenFlg'),
+        ([sql]: any[]) =>
+          typeof sql === 'string' && /m\.haiten_flg\s*=\s*false/i.test(sql),
       );
       expect(haitenCall).toBeDefined();
-      expect((haitenCall as any[])[1].haitenFlg).toBe(false);
     });
 
-    it('should bind haiten_flg=true (廃店のみ) when query.haiten_flg=true is explicitly passed', async () => {
-      // COVERS: §4.3 — exact-match semantic. checked = show 廃店 only,
-      // NOT "include 廃店". Customer 2026-05-26.
+    it('should NOT filter by haiten_flg (廃店を含む全件表示) when query.haiten_flg=true is explicitly passed', async () => {
+      // COVERS: §4.3 — inclusive semantic. checked = show BOTH active and
+      // 廃店 rows (no haiten_flg filter applied at all).
       qbMock.getManyAndCount.mockResolvedValue([[], 0]);
 
       await service.findAll(
@@ -481,14 +480,9 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       );
 
       const haitenCall = qbMock.andWhere.mock.calls.find(
-        ([sql, params]: any[]) =>
-          typeof sql === 'string' &&
-          /haiten_flg\s*=\s*:haitenFlg/i.test(sql) &&
-          params &&
-          Object.prototype.hasOwnProperty.call(params, 'haitenFlg'),
+        ([sql]: any[]) => typeof sql === 'string' && /haiten_flg/i.test(sql),
       );
-      expect(haitenCall).toBeDefined();
-      expect((haitenCall as any[])[1].haitenFlg).toBe(true);
+      expect(haitenCall).toBeUndefined();
     });
 
     it('should apply ILIKE filter when query.hanbaiten_code is provided', async () => {
@@ -891,6 +885,189 @@ describe('HanbaitenService — SCR-018 (list / delete)', () => {
       expect(txManager.update).not.toHaveBeenCalled();
     });
   });
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ACSMS-API-018-003 — exportExcel (GET /api/v1/hanbaiten/export)
+  // 顧客CR 2026-08-24 — 販売店明細検索画面に Excel出力機能を追加。
+  // ═════════════════════════════════════════════════════════════════════
+  describe('exportExcel (API-018-003)', () => {
+    it('should throw EXPORT_NO_DATA HTTP 404 when count is 0', async () => {
+      qbMock.getCount.mockResolvedValue(0);
+
+      await expect(
+        service.exportExcel({} as any, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'EXPORT_NO_DATA' }),
+      });
+    });
+
+    it('should throw EXPORT_LIMIT_EXCEEDED HTTP 409 when count exceeds 5000', async () => {
+      qbMock.getCount.mockResolvedValue(5001);
+
+      await expect(
+        service.exportExcel({} as any, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'EXPORT_LIMIT_EXCEEDED' }),
+      });
+    });
+
+    it('should pass when count is exactly 5000 (boundary)', async () => {
+      qbMock.getCount.mockResolvedValue(5000);
+      const sample = buildHanbaiten({ hanbaitenId: 1, jaId: 1 });
+      qbMock.getMany.mockResolvedValue([sample]);
+
+      await expect(
+        service.exportExcel({} as any, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).resolves.toBeDefined();
+    });
+
+    it('should return a Buffer + filename matching 販売店一覧出力_YYYYMMDD_HHmmss.xlsx', async () => {
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockResolvedValue([buildHanbaiten({ hanbaitenId: 1, jaId: 1 })]);
+
+      const result = await service.exportExcel(
+        {} as any,
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          buffer: expect.any(Buffer),
+          filename: expect.stringMatching(/^販売店一覧出力_\d{8}_\d{6}\.xlsx$/),
+        }),
+      );
+    });
+
+    it('should expose the 14-column Japanese header row mirroring the検索結果テーブル layout', async () => {
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockResolvedValue([buildHanbaiten({ hanbaitenId: 1, jaId: 1 })]);
+
+      const result = await service.exportExcel(
+        {} as any,
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+
+      expect(result.headers).toEqual([
+        '販売店コード',
+        '販売店名',
+        'JAコード',
+        'JA名',
+        '都道府県',
+        '郵便番号',
+        '住所',
+        '電話番号',
+        'FAX',
+        '所長名',
+        '委託区分',
+        '配達手数料支払サイクル',
+        '振込手数料負担区分',
+        '廃店フラグ',
+      ]);
+    });
+
+    it('should apply the same DataScope + haiten_flg filter as findAll (restricted role scoped to own ja_id, 廃店除外既定)', async () => {
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockResolvedValue([buildHanbaiten({ hanbaitenId: 1, jaId: 1 })]);
+
+      await service.exportExcel(
+        {} as any,
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+
+      const allWhereSql = [
+        ...qbMock.where.mock.calls.map((c: any[]) => c[0]),
+        ...qbMock.andWhere.mock.calls.map((c: any[]) => c[0]),
+      ].filter((s) => typeof s === 'string');
+      expect(allWhereSql.some((s) => /haiten_flg\s*=\s*false/i.test(s))).toBe(true);
+    });
+
+    it('should NOT apply pagination (take/skip) — export has no page limit beyond EXPORT_MAX_ROWS', async () => {
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockResolvedValue([buildHanbaiten({ hanbaitenId: 1, jaId: 1 })]);
+
+      await service.exportExcel(
+        {} as any,
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+
+      expect(qbMock.skip).not.toHaveBeenCalled();
+      expect(qbMock.take).toHaveBeenCalledWith(5000);
+    });
+
+    it('should resolve itaku_kubun / furikomi_tesuryo_futan_kubun to m_code labels when codeService is wired', async () => {
+      const codeServiceStub = {
+        has: jest.fn().mockReturnValue(true),
+        getLabel: jest.fn((category: string, value: number) => {
+          if (category === 'ITAKU_KUBUN' && value === 1) return '振込';
+          if (category === 'TESURYO_KUBUN' && value === 1) return 'JA';
+          return '';
+        }),
+      };
+      const serviceWithCodes = new HanbaitenService(
+        repo,
+        todofukenRepo,
+        dataSource,
+        auditLog,
+        codeServiceStub as any,
+        undefined,
+        undefined,
+      );
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockResolvedValue([
+        buildHanbaiten({ hanbaitenId: 1, jaId: 1, itakuKubun: 1, furikomiTesuryoFutanKubun: 1 }),
+      ]);
+
+      const result = await serviceWithCodes.exportExcel(
+        {} as any,
+        buildChuokaiSession({ ja_id: 1 }),
+        baseReq,
+      );
+
+      expect(codeServiceStub.getLabel).toHaveBeenCalledWith('ITAKU_KUBUN', 1);
+      expect(codeServiceStub.getLabel).toHaveBeenCalledWith('TESURYO_KUBUN', 1);
+      expect(result.buffer.length).toBeGreaterThan(0);
+    });
+
+    it('should call AuditLogService.logOperation with operation EXPORT_EXCEL and record_count when export succeeds', async () => {
+      qbMock.getCount.mockResolvedValue(3);
+      qbMock.getMany.mockResolvedValue([
+        buildHanbaiten({ hanbaitenId: 1, jaId: 1 }),
+        buildHanbaiten({ hanbaitenId: 2, jaId: 1 }),
+        buildHanbaiten({ hanbaitenId: 3, jaId: 1 }),
+      ]);
+
+      await service.exportExcel({} as any, buildChuokaiSession({ ja_id: 1 }), baseReq);
+
+      const opCall = auditLog.logOperation.mock.calls.find(
+        (c: any[]) => c[0]?.operation === 'EXPORT_EXCEL',
+      );
+      expect(opCall).toBeDefined();
+      expect(opCall![0]).toMatchObject({
+        resultStatus: 1,
+        targetTable: 'm_hanbaiten',
+      });
+      expect(JSON.parse(opCall![0].afterValue)).toMatchObject({ record_count: 3 });
+    });
+
+    it('should log an error (log_type=3) and rethrow when Excel generation fails unexpectedly', async () => {
+      qbMock.getCount.mockResolvedValue(1);
+      qbMock.getMany.mockRejectedValue(new Error('db crashed'));
+
+      await expect(
+        service.exportExcel({} as any, buildChuokaiSession({ ja_id: 1 }), baseReq),
+      ).rejects.toThrow('db crashed');
+
+      const errorCall = auditLog.logOperation.mock.calls.find(
+        ([p]: any[]) => p.logType === 3 && p.resultStatus === 2,
+      );
+      expect(errorCall).toBeDefined();
+      expect(errorCall![0]).toMatchObject({ operation: 'EXPORT_EXCEL' });
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -961,8 +1138,12 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
       createQueryBuilder: jest.fn(() => qbMock),
     };
 
+    // [code-master-check] — buildCreateHanbaitenBody() / buildUpdateHanbaitenBody()
+    // default to todofuken_code: '13'. Resolve it by default so tests that
+    // don't care about this check don't have to stub it individually; tests
+    // exercising the rejection path override with mockResolvedValue(null).
     todofukenRepo = {
-      findOne: jest.fn(),
+      findOne: jest.fn().mockResolvedValue({ todofukenCode: '13', todofukenName: '東京都' }),
       find: jest.fn().mockResolvedValue([]),
     };
 
@@ -1215,6 +1396,21 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
           baseReq,
         ),
       ).rejects.toThrow(DuplicateCodeException);
+    });
+
+    it('should validate todofuken_code exists in m_todofuken (顧客CR 2026-08-24 — 都道府県が自由選択になったため)', async () => {
+      todofukenRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.createHanbaiten(
+          buildCreateHanbaitenBody(),
+          buildChuokaiSession(),
+          baseReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(todofukenRepo.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ todofukenCode: '13' }) }),
+      );
     });
 
     it('should call CodeService.has with ITAKU_KUBUN when validating itaku_kubun', async () => {
@@ -1527,6 +1723,19 @@ describe('HanbaitenService — SCR-017 (detail + create + update)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('should validate todofuken_code exists in m_todofuken (顧客CR 2026-08-24 — 都道府県が自由選択になったため)', async () => {
+      todofukenRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateHanbaiten(
+          1,
+          buildUpdateHanbaitenBody(),
+          buildChuokaiSession({ ja_id: 1 }),
+          baseReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
     it('should NOT update hanbaiten_code when present (hanbaiten_code 更新不可)', async () => {
       // COVERS: §3 注記 — hanbaiten_code は更新不可
       await service.updateHanbaiten(
@@ -1819,9 +2028,12 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       createQueryBuilder: jest.fn(() => qbMock),
     };
 
+    // [todofuken-validation] — buildImportRow() defaults todofuken_code
+    // to '13' (東京都); resolve it by default so tests that don't care
+    // about this column's validation don't have to stub it individually.
     todofukenRepo = {
       findOne: jest.fn(),
-      find: jest.fn().mockResolvedValue([]),
+      find: jest.fn().mockResolvedValue([{ todofukenCode: '13', todofukenName: '東京都' }]),
     };
 
     auditLog = {
@@ -1877,6 +2089,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       auditLog,
       codeService,
       tankaRepo,
+      todofukenRepo,
     );
     service = new HanbaitenService(
       repo,
@@ -1906,8 +2119,8 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
       expect(Buffer.isBuffer(buf)).toBe(true);
     });
 
-    it('should include all 23 Japanese column headers in the canonical order when generating the template', async () => {
-      // COVERS: §4.3 — 1行目に23列のヘッダー文字列。Headers are exposed
+    it('should include all 24 Japanese column headers in the canonical order when generating the template', async () => {
+      // COVERS: §4.3 — 1行目に24列のヘッダー文字列。Headers are exposed
       // via a helper (`getImportTemplateColumns()`) the integration spec
       // also asserts. If the implementation places them inline, this
       // assertion still validates the contract because the helper is the
@@ -1918,6 +2131,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         '販売店名称',
         '販売店名称（カナ）',
         'インボイス番号',
+        '都道府県コード',
         '郵便番号',
         '住所',
         '電話番号',
@@ -2022,6 +2236,89 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         // … unselected columns fall back to the empty default.
         expect(created.tel).toBe('');
         expect(created.biko).toBe('');
+      });
+
+      // 顧客CR 2026-08-24 — todofuken_code は取込にも任意列として追加。
+      // [todofuken-default] — 未選択 or セル空なら JA の都道府県に fallback。
+      describe('todofuken_code (顧客CR 2026-08-24 — 任意列・JA既定フォールバック)', () => {
+        const baseRow = {
+          hanbaiten_code: 'H001',
+          hanbaiten_name: '販売店A',
+          itaku_kubun: 2,
+          furikomi_tesuryo_futan_kubun: 1,
+        };
+        const baseSelectedColumns = [
+          'hanbaiten_code',
+          'hanbaiten_name',
+          'itaku_kubun',
+          'furikomi_tesuryo_futan_kubun',
+        ];
+
+        it('should default todofukenCode to the JA prefecture when the column is not selected', async () => {
+          dataSource.query = jest.fn(async (sql: string) =>
+            /m_ja/i.test(sql) ? [{ todofuken_code: '27' }] : [],
+          );
+          await service.importExcel(
+            buildImportRequestNEW({
+              selected_columns: baseSelectedColumns,
+              rows: [baseRow],
+            }),
+            importerSession(),
+            baseReq,
+          );
+          const created = (txManager.create as jest.Mock).mock.calls[0][1];
+          expect(created.todofukenCode).toBe('27');
+        });
+
+        it('should use the Excel value when the column is selected and the cell has a value', async () => {
+          dataSource.query = jest.fn(async (sql: string) =>
+            /m_ja/i.test(sql) ? [{ todofuken_code: '27' }] : [],
+          );
+          await service.importExcel(
+            buildImportRequestNEW({
+              selected_columns: [...baseSelectedColumns, 'todofuken_code'],
+              rows: [{ ...baseRow, todofuken_code: '13' }],
+            }),
+            importerSession(),
+            baseReq,
+          );
+          const created = (txManager.create as jest.Mock).mock.calls[0][1];
+          expect(created.todofukenCode).toBe('13');
+        });
+
+        it('should fall back to the JA prefecture when the column is selected but the cell is blank', async () => {
+          dataSource.query = jest.fn(async (sql: string) =>
+            /m_ja/i.test(sql) ? [{ todofuken_code: '27' }] : [],
+          );
+          await service.importExcel(
+            buildImportRequestNEW({
+              selected_columns: [...baseSelectedColumns, 'todofuken_code'],
+              rows: [baseRow],
+            }),
+            importerSession(),
+            baseReq,
+          );
+          const created = (txManager.create as jest.Mock).mock.calls[0][1];
+          expect(created.todofukenCode).toBe('27');
+        });
+
+        it('should throw IMPORT_VALIDATION_ERROR when the Excel todofuken_code does not exist in m_todofuken', async () => {
+          todofukenRepo.find.mockResolvedValue([]);
+          const body = buildImportRequestNEW({
+            selected_columns: [...baseSelectedColumns, 'todofuken_code'],
+            rows: [{ ...baseRow, todofuken_code: '99' }],
+          });
+          await expect(
+            service.importExcel(body, importerSession(), baseReq),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              error_code: 'IMPORT_VALIDATION_ERROR',
+              errors: expect.arrayContaining([
+                expect.objectContaining({ field: 'todofuken_code' }),
+              ]),
+            }),
+          });
+        });
       });
 
       it('should throw IMPORT_VALIDATION_ERROR when itaku_kubun / furikomi_tesuryo_futan_kubun are blank in NEW (必須・顧客要件)', async () => {
@@ -2397,7 +2694,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_PARTIAL when UPDATE succeeds', async () => {
+      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE when UPDATE succeeds', async () => {
         // EXCEPTION to bare-verb rule per api.md §4.5.
         await service.importExcel(
           buildImportRequestUpdateAll(),
@@ -2408,15 +2705,15 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         const updateCtx =
           auditLog.logUpdate.mock.calls[0]?.[0] ??
           auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
+            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE',
           )?.[0];
         expect(updateCtx).toBeDefined();
         const operation =
           updateCtx.operation ??
           auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
+            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE',
           )?.[0]?.operation;
-        expect(operation).toBe('IMPORT_UPDATE_PARTIAL');
+        expect(operation).toBe('IMPORT_UPDATE');
       });
 
       it('should populate before_value JSON with the pre-update row snapshot when audit-logging UPDATE', async () => {
@@ -2428,7 +2725,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         );
         // 単一 logOperation 呼び出しの payload.beforeValue に更新前データが入る。
         const opCall = auditLog.logOperation.mock.calls.find(
-          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE',
         );
         expect(opCall).toBeDefined();
         expect(opCall![0]?.beforeValue).toBeDefined();
@@ -2462,11 +2759,65 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
           baseReq,
         );
         const opCall = auditLog.logOperation.mock.calls.find(
-          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
+          (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE',
         );
         expect(opCall).toBeDefined();
         // logOperation signature: (payload, manager?). 2nd arg is the manager.
         expect(opCall![1]).toBe(txManager);
+      });
+
+      // 顧客CR 2026-08-24 — todofuken_code は UPDATE でも編集可能な任意列。
+      describe('todofuken_code (顧客CR 2026-08-24)', () => {
+        it('should update todofukenCode to the Excel value when the column is selected and the cell has a value', async () => {
+          todofukenRepo.find.mockResolvedValue([
+            { todofukenCode: '14', todofukenName: '神奈川県' },
+          ]);
+          await service.importExcel(
+            buildImportRequestUpdateAll({
+              rows: [buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '14' })],
+            }),
+            importerSession(),
+            baseReq,
+          );
+          const updateCall = (txManager.update as jest.Mock).mock.calls[0];
+          expect(updateCall[2]).toMatchObject({ todofukenCode: '14' });
+        });
+
+        it('should fall back to the JA prefecture when the column is selected but the cell is blank', async () => {
+          dataSource.query = jest.fn(async (sql: string) => {
+            if (/m_hanbaiten/i.test(sql)) {
+              return [{ hanbaiten_id: 1, hanbaiten_code: 'H001' }];
+            }
+            if (/m_ja/i.test(sql)) return [{ todofuken_code: '27' }];
+            return [];
+          });
+          await service.importExcel(
+            buildImportRequestUpdateAll({
+              rows: [buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '' })],
+            }),
+            importerSession(),
+            baseReq,
+          );
+          const updateCall = (txManager.update as jest.Mock).mock.calls[0];
+          expect(updateCall[2]).toMatchObject({ todofukenCode: '27' });
+        });
+
+        it('should throw IMPORT_VALIDATION_ERROR when the Excel todofuken_code does not exist in m_todofuken', async () => {
+          todofukenRepo.find.mockResolvedValue([]);
+          const body = buildImportRequestUpdateAll({
+            rows: [buildImportRow({ hanbaiten_code: 'H001', todofuken_code: '99' })],
+          });
+          await expect(
+            service.importExcel(body, importerSession(), baseReq),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({
+              error_code: 'IMPORT_VALIDATION_ERROR',
+              errors: expect.arrayContaining([
+                expect.objectContaining({ field: 'todofuken_code' }),
+              ]),
+            }),
+          });
+        });
       });
     });
 
@@ -2541,7 +2892,7 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         });
       });
 
-      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE_PARTIAL when UPDATE succeeds', async () => {
+      it('should call AuditLogService.logUpdate with operation IMPORT_UPDATE when UPDATE succeeds', async () => {
         await service.importExcel(
           buildImportRequestUpdatePartial(),
           importerSession(),
@@ -2550,9 +2901,9 @@ describe('HanbaitenService — SCR-019 (Excel template + bulk import)', () => {
         const operation =
           auditLog.logUpdate.mock.calls[0]?.[0]?.operation ??
           auditLog.logOperation.mock.calls.find(
-            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE_PARTIAL',
+            (c: any[]) => c[0]?.operation === 'IMPORT_UPDATE',
           )?.[0]?.operation;
-        expect(operation).toBe('IMPORT_UPDATE_PARTIAL');
+        expect(operation).toBe('IMPORT_UPDATE');
       });
 
       it('should NOT touch unselected columns when UPDATE is the mode (existing DB values retained)', async () => {

@@ -28,9 +28,11 @@ import { Permissions } from '@/common/decorators/permissions.decorator';
 import { PermissionsGuard } from '@/common/guards/permissions.guard';
 import { SessionAuthGuard } from '@/common/guards/session-auth.guard';
 import type { SessionPayload } from '@/modules/auth/session.service';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 
 import { ApproveDokusyaDto } from './dto/approve-dokusya.dto';
 import { RejectDokusyaDto } from './dto/reject-dokusya.dto';
+import { RegisterTankaDokusyaDto } from './dto/register-tanka-dokusya.dto';
 import { CreateDokusyaDto } from './dto/create-dokusya.dto';
 import { SearchDokusyaDto } from './dto/search-dokusya.dto';
 import { SearchReplaceDokusyaDto } from './dto/search-replace-dokusya.dto';
@@ -277,7 +279,7 @@ export class DokusyaController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     const data = await this.service.create(dto, req.user, req);
-    return { data, message: '登録しました。' };
+    return { data, message: SuccessMessage.CREATED };
   }
 
   // ─── API-011-003 ────────────────────────────────────────────────────
@@ -296,7 +298,7 @@ export class DokusyaController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     const data = await this.service.update(dokusyaId, dto, req.user, req);
-    return { data, message: '更新しました。' };
+    return { data, message: SuccessMessage.UPDATED };
   }
 
   // ─── API-011-004 ────────────────────────────────────────────────────
@@ -333,6 +335,24 @@ export class DokusyaController {
     @Req() req: Request & { user: SessionPayload },
   ) {
     return this.service.reject(dokusyaId, req.user, req, dto);
+  }
+
+  // ─── API-011-007（2026-08 追加） ─────────────────────────────────────
+  @Put(':dokusya_id/register-tanka')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('dokusya.update')
+  @ApiOperation({ summary: '購読者情報登録画面 — 承認ワークフロー対象外読者の単価初回登録' })
+  @ApiResponse({ status: 200, type: DokusyaMutationResponseDto })
+  @ApiResponse({ status: 400, description: 'INVALID_STATUS — 対象外の読者、または単価登録済み' })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
+  @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
+  @ApiResponse({ status: 404, description: '指定された購読者が見つかりません。' })
+  async registerTanka(
+    @Param('dokusya_id', ParseIntPipe) dokusyaId: number,
+    @Body() dto: RegisterTankaDokusyaDto,
+    @Req() req: Request & { user: SessionPayload },
+  ) {
+    return this.service.registerTanka(dokusyaId, req.user, req, dto);
   }
 
   // ─── API-014-002 ────────────────────────────────────────────────────

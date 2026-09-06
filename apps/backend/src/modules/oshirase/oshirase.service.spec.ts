@@ -765,6 +765,27 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
       await expect(service.create(body, session, req)).resolves.toBeDefined();
     });
 
+    it('should reject with a 400 BadRequestException when publish_start_date does not match YYYY/MM/DD HH:mm', async () => {
+      const body = buildCreateOshiraseBody({ publish_start_date: '2026-08-22 10:00' });
+
+      await expect(service.create(body, session, req)).rejects.toMatchObject({
+        status: 400,
+        message: '表示開始日時の形式が不正です。',
+      });
+    });
+
+    it('should reject with a 400 BadRequestException when publish_end_date does not match YYYY/MM/DD HH:mm', async () => {
+      const body = buildCreateOshiraseBody({
+        publish_start_date: futureDateString(7),
+        publish_end_date: '2026-08-22 10:00',
+      });
+
+      await expect(service.create(body, session, req)).rejects.toMatchObject({
+        status: 400,
+        message: '表示終了日時の形式が不正です。',
+      });
+    });
+
     it('should call AuditLogService.logCreate with operation CREATE inside the same transaction when create succeeds', async () => {
       await service.create(buildCreateOshiraseBody(), session, req);
 
@@ -964,6 +985,59 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
         }),
       });
     });
+
+    it('should reject with DEADLINE_NOTICE_DUPLICATE when changing to oshirase_type=4 (publish_location=3) while another deadline notice already exists', async () => {
+      // create と同じ一意性ルールだが、編集中の自分自身は除外
+      // （oshiraseId: Not(oshiraseId)）— 他行との重複のみ検出する。
+      const existing = buildOshiraseEntity({
+        oshiraseId: 1,
+        publishStartDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+      oshiraseRepo.findOne.mockResolvedValue(existing);
+      txManager.findOne.mockResolvedValue(existing);
+      oshiraseRepo.count.mockResolvedValue(1);
+
+      const body = buildUpdateOshiraseBody({ publish_location: 3, oshirase_type: 4 });
+
+      await expect(service.update(1, body, session, req)).rejects.toMatchObject({
+        response: expect.objectContaining({ error_code: 'DEADLINE_NOTICE_DUPLICATE' }),
+      });
+    });
+
+    it('should reject with a 400 BadRequestException when publish_start_date does not match YYYY/MM/DD HH:mm', async () => {
+      const existing = buildOshiraseEntity({
+        oshiraseId: 1,
+        publishStartDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+      oshiraseRepo.findOne.mockResolvedValue(existing);
+      txManager.findOne.mockResolvedValue(existing);
+
+      const body = buildUpdateOshiraseBody({ publish_start_date: '2026-08-22 10:00' });
+
+      await expect(service.update(1, body, session, req)).rejects.toMatchObject({
+        status: 400,
+        message: '表示開始日時の形式が不正です。',
+      });
+    });
+
+    it('should reject with a 400 BadRequestException when publish_end_date does not match YYYY/MM/DD HH:mm', async () => {
+      const existing = buildOshiraseEntity({
+        oshiraseId: 1,
+        publishStartDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+      oshiraseRepo.findOne.mockResolvedValue(existing);
+      txManager.findOne.mockResolvedValue(existing);
+
+      const body = buildUpdateOshiraseBody({
+        publish_start_date: futureDateString(7),
+        publish_end_date: '2026-08-22 10:00',
+      });
+
+      await expect(service.update(1, body, session, req)).rejects.toMatchObject({
+        status: 400,
+        message: '表示終了日時の形式が不正です。',
+      });
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1026,6 +1100,23 @@ describe('OshiraseService — SCR-031 (admin CRUD)', () => {
         expect.objectContaining({ targetId: 1, table: 't_oshirase' }),
         'DELETE',
         expect.any(Error),
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  // [scr031-deps-guard] — assertScrAdminDeps
+  // ═══════════════════════════════════════════════════════════════════
+  describe('SCR-031 admin deps guard', () => {
+    it('should throw when create/update/remove are called on a service built without dataSource/auditLog (SCR-001-only DI shape)', async () => {
+      // Mirrors the constructor shape used by the SCR-001 (public findLogin)
+      // describe block above — only (repo, codeService) supplied.
+      const bareService = new OshiraseService(oshiraseRepo as any, codeService as any);
+
+      await expect(
+        bareService.create(buildCreateOshiraseBody(), session, req),
+      ).rejects.toThrow(
+        'OshiraseService.dataSource/auditLog undefined — SCR-031 endpoints require both.',
       );
     });
   });

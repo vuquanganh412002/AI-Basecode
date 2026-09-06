@@ -18,6 +18,7 @@ updated_by: Dao Van Thang
 | No  | 発行日       | 版数 | 担当者        | 変更内容 | 確認者         | 承認者         |
 | --- | ------------ | ---- | ------------- | -------- | -------------- | -------------- |
 | 1   | {issue_date} | 1.0  | Dao Van Thang | 初版作成 | Nguyen Huy Dat | Nguyen Huy Dat |
+| 2   | 2026/08/20   | 1.1  | Tran Duc Tuyen | 不具合修正2026-08：§4.4 関連データチェックに `t_dokusya_rireki`（購読者履歴、kanri_shiten_id 参照）を追加。実DBの外部キー制約(`FK_t_dokusya_rireki_m_kanri_shiten`)には存在するが、削除ガードの対象から漏れていた。 | | |
 
 ## システム概要
 
@@ -473,6 +474,11 @@ WHERE kanri_shiten_id = :kanri_shiten_id AND deleted_at IS NULL;
 -- アカウントの存在チェック
 SELECT COUNT(*) FROM m_account
 WHERE kanri_shiten_id = :kanri_shiten_id AND deleted_at IS NULL;
+
+-- 購読者履歴の存在チェック（不具合修正2026-08 — t_dokusya_rireki は
+-- append-only の履歴テーブルで deleted_at 列を持たないため付けない）
+SELECT COUNT(*) FROM t_dokusya_rireki
+WHERE kanri_shiten_id = :kanri_shiten_id;
 ```
 
 - いずれかに関連レコードが存在する場合：

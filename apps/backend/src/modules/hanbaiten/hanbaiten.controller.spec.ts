@@ -77,6 +77,7 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
       findAll: jest.fn(),
       remove: jest.fn(),
       listDropdown: jest.fn(),
+      exportExcel: jest.fn(),
     };
     // Default: NICHINO_STAFF — has both hanbaiten.view (yes) but NOT hanbaiten.delete
     // per seeder.md §3. Each test overrides as needed.
@@ -132,6 +133,16 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
   });
 
   const http = () => request(app.getHttpServer() as Server);
+
+  /** supertest binary parser — captures Buffer chunks for XLSX download. */
+  function binaryParser(
+    res: any,
+    callback: (err: Error | null, body: Buffer) => void,
+  ) {
+    const chunks: Buffer[] = [];
+    res.on('data', (chunk: Buffer) => chunks.push(chunk));
+    res.on('end', () => callback(null, Buffer.concat(chunks)));
+  }
 
   const sampleListItem = {
     hanbaiten_id: 1,
@@ -425,6 +436,110 @@ describe('HanbaitenController — SCR-018 HTTP (list / delete)', () => {
       service.remove.mockRejectedValue(new Error('db crashed'));
 
       const res = await http().delete(apiUrl('hanbaiten/1')).expect(500);
+      expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ACSMS-API-018-003 — GET /api/v1/hanbaiten/export（顧客CR 2026-08-24）
+  // ─────────────────────────────────────────────────────────────────────
+  describe('GET /api/v1/hanbaiten/export (API-018-003)', () => {
+    it('should return 200 with a binary XLSX body when caller holds hanbaiten.view', async () => {
+      service.exportExcel.mockResolvedValue({
+        buffer: Buffer.from('mocked-xlsx'),
+        filename: '販売店一覧出力_20260824_120000.xlsx',
+        headers: [],
+      });
+
+      const res = await http()
+        .get(apiUrl('hanbaiten/export'))
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      expect(Buffer.isBuffer(res.body)).toBe(true);
+      expect((res.body as Buffer).length).toBeGreaterThan(0);
+    });
+
+    it('should set Content-Type to application/vnd.openxmlformats-officedocument.spreadsheetml.sheet on success', async () => {
+      service.exportExcel.mockResolvedValue({
+        buffer: Buffer.from('mocked-xlsx'),
+        filename: '販売店一覧出力_20260824_120000.xlsx',
+        headers: [],
+      });
+
+      const res = await http()
+        .get(apiUrl('hanbaiten/export'))
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      expect(res.headers['content-type']).toMatch(
+        /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/i,
+      );
+    });
+
+    it('should set Content-Disposition with the service-provided Japanese filename on success', async () => {
+      service.exportExcel.mockResolvedValue({
+        buffer: Buffer.from('mocked-xlsx'),
+        filename: '販売店一覧出力_20260824_120000.xlsx',
+        headers: [],
+      });
+
+      const res = await http()
+        .get(apiUrl('hanbaiten/export'))
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      const cd = String(res.headers['content-disposition'] ?? '');
+      expect(cd).toMatch(/attachment/i);
+      expect(cd).toMatch(
+        /(販売店一覧出力_20260824_120000\.xlsx|filename\*=UTF-8''.+\.xlsx)/,
+      );
+    });
+
+    it('should return 401 UNAUTHORIZED when no session cookie is provided', async () => {
+      currentSession = null;
+      const res = await http().get(apiUrl('hanbaiten/export')).expect(401);
+      expect(res.body.error_code).toBe('UNAUTHORIZED');
+    });
+
+    it('should return 403 FORBIDDEN when caller lacks hanbaiten.view / hanbaiten.daiko_input', async () => {
+      permissionsGuardValue = false;
+      const res = await http().get(apiUrl('hanbaiten/export')).expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
+    });
+
+    it('should return 404 EXPORT_NO_DATA when the filtered result set is empty', async () => {
+      service.exportExcel.mockRejectedValue(
+        new HttpException(
+          { code: 'EXPORT_NO_DATA', error_code: 'EXPORT_NO_DATA', message: '出力データがありません。' },
+          HttpStatus.NOT_FOUND,
+        ),
+      );
+      const res = await http().get(apiUrl('hanbaiten/export')).expect(404);
+      expect(res.body.error_code).toBe('EXPORT_NO_DATA');
+    });
+
+    it('should return 409 EXPORT_LIMIT_EXCEEDED when the filtered result set exceeds the cap', async () => {
+      service.exportExcel.mockRejectedValue(
+        new HttpException(
+          {
+            code: 'EXPORT_LIMIT_EXCEEDED',
+            error_code: 'EXPORT_LIMIT_EXCEEDED',
+            message: '出力データ件数が5000件を超えています。',
+          },
+          HttpStatus.CONFLICT,
+        ),
+      );
+      const res = await http().get(apiUrl('hanbaiten/export')).expect(409);
+      expect(res.body.error_code).toBe('EXPORT_LIMIT_EXCEEDED');
+    });
+
+    it('should return 500 INTERNAL_SERVER_ERROR when the service throws an unexpected error', async () => {
+      service.exportExcel.mockRejectedValue(new Error('ExcelJS oom'));
+      const res = await http().get(apiUrl('hanbaiten/export')).expect(500);
       expect(res.body.error_code).toBe('INTERNAL_SERVER_ERROR');
     });
   });

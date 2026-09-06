@@ -34,7 +34,10 @@ import {
   buildZougenNichinoRemark,
   buildZougenNichinoRawRow,
 } from '@test/fixtures/report-zougen-nichino.factory';
-import { formatGenBusu } from '@/modules/report/zougen-nichino.mapper';
+import {
+  formatGenBusu,
+  groupZougenNichinoReports,
+} from '@/modules/report/zougen-nichino.mapper';
 
 describe('zougen-nichino.mapper — formatGenBusu (減部数の▲表示・顧客要件2026-07)', () => {
   it('prefixes 減部数 with ▲ when the value is positive', () => {
@@ -44,6 +47,117 @@ describe('zougen-nichino.mapper — formatGenBusu (減部数の▲表示・顧�
 
   it('shows "0" (no ▲) when there is no 減部数', () => {
     expect(formatGenBusu(0)).toBe('0');
+  });
+});
+
+describe('zougen-nichino.mapper — groupZougenNichinoReports (同一販売店の行集約・#59108)', () => {
+  it('merges two different subscribers changing the same 販売店 on the same day into 1 row (片岡様フィードバック 2026-08-24)', () => {
+    // 木場深川 (hanbaiten_id=300): 前日までに1部（8/29の+1が既に反映済み）→
+    // 当日、新規購読者(9201)が+1、既存購読者(9202)が解約で-1 → net 0、最終1部。
+    const rows = [
+      buildZougenNichinoRawRow({
+        dokusya_id: 9201,
+        hanbaiten_id: 300,
+        hanbaiten_code: '3130001000',
+        hanbaiten_name: '木場深川',
+        zenkai_hanbaiten_id: 300,
+        dokusya_busu: 1,
+        zenkai_dokusya_busu: 0,
+      }),
+      buildZougenNichinoRawRow({
+        dokusya_id: 9202,
+        hanbaiten_id: 300,
+        hanbaiten_code: '3130001000',
+        hanbaiten_name: '木場深川',
+        zenkai_hanbaiten_id: 300,
+        dokusya_busu: 0,
+        zenkai_dokusya_busu: 1,
+      }),
+    ] as any;
+
+    const reports = groupZougenNichinoReports(rows);
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0].rows).toHaveLength(1);
+    expect(reports[0].rows[0]).toMatchObject({
+      hanbaiten_code: '3130001000',
+      genzai_busu: 1,
+      zou_busu: 1,
+      gen_busu: 1,
+      shin_busu: 1,
+      diff_mark: true,
+    });
+    // total は集約前から常に正しい（addRow 側で合算済み）— 回帰確認。
+    expect(reports[0].total).toEqual({
+      genzai_busu: 1,
+      zou_busu: 1,
+      gen_busu: 1,
+      shin_busu: 1,
+    });
+  });
+
+  it('keeps different 販売店 as separate rows (no over-merging)', () => {
+    const rows = [
+      buildZougenNichinoRawRow({
+        dokusya_id: 9301,
+        hanbaiten_id: 300,
+        hanbaiten_code: '3130001000',
+        hanbaiten_name: '木場深川',
+        zenkai_hanbaiten_id: 300,
+        dokusya_busu: 1,
+        zenkai_dokusya_busu: 0,
+      }),
+      buildZougenNichinoRawRow({
+        dokusya_id: 9302,
+        hanbaiten_id: 301,
+        hanbaiten_code: '3130001010',
+        hanbaiten_name: '日経・深川2',
+        zenkai_hanbaiten_id: 301,
+        dokusya_busu: 1,
+        zenkai_dokusya_busu: 0,
+      }),
+    ] as any;
+
+    const reports = groupZougenNichinoReports(rows);
+
+    expect(reports).toHaveLength(1);
+    expect(reports[0].rows.map((r) => r.hanbaiten_code)).toEqual(
+      ['3130001000', '3130001010'],
+    );
+  });
+
+  it('drops a merged 販売店 row whose 現在部数 and 新部数 are both 0 after a store-change split (#59108)', () => {
+    // 購読者が販売店を移動(300→400)しつつ同時に0部(転出時解約相当)になるケース。
+    // 生行フィルタは zenkai_dokusya_busu=5(≠0)で通過するため、classifyNichino の
+    // 販売店変更分岐は転出元(300: 現在5/新0)と転入先(400: 現在0/新0)の2行を生成する。
+    // 転入先は現在部数・新部数ともに0の空行になるため、集約後に除外されるべき
+    // （「現在部数 または 新部数 が0でない店舗のみ掲載」— 顧客CR #59108）。
+    const rows = [
+      buildZougenNichinoRawRow({
+        dokusya_id: 9401,
+        hanbaiten_id: 400,
+        hanbaiten_code: '4000000000',
+        hanbaiten_name: '転入先店',
+        zenkai_hanbaiten_id: 300,
+        zenkai_hanbaiten_code: '3000000000',
+        zenkai_hanbaiten_name: '転出元店',
+        dokusya_busu: 0,
+        zenkai_dokusya_busu: 5,
+      }),
+    ] as any;
+
+    const reports = groupZougenNichinoReports(rows);
+
+    expect(reports).toHaveLength(1);
+    // 転出元(300)のみ残る。転入先(400)の現在0/新0の空行は除外される。
+    expect(reports[0].rows).toHaveLength(1);
+    expect(reports[0].rows[0]).toMatchObject({
+      hanbaiten_code: '3000000000',
+      genzai_busu: 5,
+      zou_busu: 0,
+      gen_busu: 5,
+      shin_busu: 0,
+    });
   });
 });
 
@@ -69,14 +183,33 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     });
 
   // 増減通知プレビューはグループ単位ページング（管理支店ごとに独立ページ・顧客要件
-  // 2026-07・ACSMS-SCR-026 と同方針）：全件を1回 getRawMany で取得し、mapper の
-  // paginateNichinoSubscribers で管理支店ページに分割する。よってモックは全件を返す
-  // 単一の getRawMany で足りる（count/ids の2クエリは廃止）。
+  // 2026-07・ACSMS-SCR-026 と同方針）。fetchZougenNichinoRows は当日の増減報告
+  // 対象行（nichinoBaseQuery / getRawMany の奇数回目）と、動きの無い既存購読者の
+  // 基礎行（nichinoBaselineQuery / getRawMany の偶数回目）の2クエリを実行する
+  // （顧客CR #59108 片岡様フィードバック 2026-08-31）。previewZougenNichino を
+  // ページ違いで複数回呼ぶテストもあるため、奇数回目=rows／偶数回目=空 で交互に
+  // 返す（1回のみ呼ぶテストでも同じ結果になる）。既存テストは「当日の増減対象行
+  // のみ」を検証するため、基礎行クエリは空がデフォルト — 基礎行の挙動そのものを
+  // 検証するテストは mockNichinoPageWithBaseline を使う。
   const mockNichinoPage = (
     rows: ReturnType<typeof buildZougenNichinoRawRow>[],
   ): void => {
     qbMock.getRawMany.mockReset();
-    qbMock.getRawMany.mockResolvedValue(rows);
+    let callCount = 0;
+    qbMock.getRawMany.mockImplementation(async () => {
+      callCount += 1;
+      return callCount % 2 === 1 ? rows : [];
+    });
+  };
+
+  // 当日の増減対象行 + 動きの無い既存購読者の基礎行の両方を個別に指定するテスト用。
+  const mockNichinoPageWithBaseline = (
+    changedRows: ReturnType<typeof buildZougenNichinoRawRow>[],
+    baselineRows: ReturnType<typeof buildZougenNichinoRawRow>[],
+  ): void => {
+    qbMock.getRawMany.mockReset();
+    qbMock.getRawMany.mockResolvedValueOnce(changedRows);
+    qbMock.getRawMany.mockResolvedValueOnce(baselineRows);
   };
 
   beforeEach(() => {
@@ -394,13 +527,16 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       // ページ順・行内順）は groupZougenNichinoReports / paginate 側で再整列する。
       mockNichinoPage([
         buildZougenNichinoRawRow({
-          dokusya_id: 9101, kanri_shiten_id: 22, kanri_shiten_code: '1AA3300002', hanbaiten_code: '20000000',
+          dokusya_id: 9101, kanri_shiten_id: 22, kanri_shiten_code: '1AA3300002',
+          hanbaiten_id: 201, hanbaiten_code: '20000000', zenkai_hanbaiten_id: 201,
         }),
         buildZougenNichinoRawRow({
-          dokusya_id: 9102, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001', hanbaiten_code: '12345678',
+          dokusya_id: 9102, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001',
+          hanbaiten_id: 202, hanbaiten_code: '12345678', zenkai_hanbaiten_id: 202,
         }),
         buildZougenNichinoRawRow({
-          dokusya_id: 9103, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001', hanbaiten_code: '10000000',
+          dokusya_id: 9103, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001',
+          hanbaiten_id: 203, hanbaiten_code: '10000000', zenkai_hanbaiten_id: 203,
         }),
       ]);
 
@@ -421,6 +557,104 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(
         qbMock.orderBy.mock.calls.some(([col]: any[]) => /dokusya_id/.test(String(col))),
       ).toBe(true);
+    });
+
+    // 顧客CR #59108 片岡様フィードバック 2026-08-31: 適用日8/31に砂町で増部したが、
+    // 8/30時点で既に有る「木場深川」「日経・深川２」（当日の動きなし）が出力されず
+    // 「部数の動きがあった販売店のみ」になっていた。要件定義書どおり、現在部数
+    // または新部数がある販売店は動きの有無にかかわらず全て出力する。
+    it('shows 販売店 with no change today alongside 販売店 with an actual change, matching the customer sample (砂町/木場深川/日経・深川２)', async () => {
+      mockNichinoPageWithBaseline(
+        // 当日の増減報告対象行: 砂町のみ増部（現在0→新1）。
+        [
+          buildZougenNichinoRawRow({
+            dokusya_id: 9401,
+            hanbaiten_id: 700,
+            hanbaiten_code: '3130007000',
+            hanbaiten_name: '砂町',
+            zenkai_hanbaiten_id: 700,
+            dokusya_busu: 1,
+            zenkai_dokusya_busu: 0,
+          }),
+        ],
+        // 基礎行（動きなし）: 木場深川・日経・深川２ は8/30時点の部数のまま。
+        [
+          buildZougenNichinoRawRow({
+            dokusya_id: 9402,
+            hanbaiten_id: 300,
+            hanbaiten_code: '3130001000',
+            hanbaiten_name: '木場深川',
+            dokusya_busu: 1,
+          }),
+          buildZougenNichinoRawRow({
+            dokusya_id: 9403,
+            hanbaiten_id: 301,
+            hanbaiten_code: '3130001010',
+            hanbaiten_name: '日経・深川2',
+            dokusya_busu: 1,
+          }),
+        ],
+      );
+
+      const result = await service.previewZougenNichino(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-08-31' }),
+        nSession(),
+      );
+
+      expect(result.reports).toHaveLength(1);
+      const rows = result.reports[0].rows;
+      expect(rows).toHaveLength(3);
+      const byCode = Object.fromEntries(rows.map((r) => [r.hanbaiten_code, r]));
+      // 木場深川・日経・深川2: 動きなし → 現在=新=1、増減0、◆なし。
+      expect(byCode['3130001000']).toMatchObject({
+        genzai_busu: 1, zou_busu: 0, gen_busu: 0, shin_busu: 1, diff_mark: false,
+      });
+      expect(byCode['3130001010']).toMatchObject({
+        genzai_busu: 1, zou_busu: 0, gen_busu: 0, shin_busu: 1, diff_mark: false,
+      });
+      // 砂町: 当日の実際の増部 → 現在0/増1/減0/新1、◆あり。
+      expect(byCode['3130007000']).toMatchObject({
+        genzai_busu: 0, zou_busu: 1, gen_busu: 0, shin_busu: 1, diff_mark: true,
+      });
+      // 合計（顧客サンプル通り）: 現在2/増1/減0/新3。
+      expect(result.reports[0].total).toEqual({
+        genzai_busu: 2, zou_busu: 1, gen_busu: 0, shin_busu: 3,
+      });
+    });
+
+    it('excludes a subscriber already covered by the changed-today query from the baseline query (no double count)', async () => {
+      // 同一 dokusya_id が当日の増減対象行にも基礎行にも重複計上されないことを
+      // クエリ設計として確認する（nichinoBaselineQuery の NOT EXISTS r3）。
+      mockNichinoPageWithBaseline(
+        [buildZougenNichinoRawRow({ dokusya_id: 9501, dokusya_busu: 3, zenkai_dokusya_busu: 1 })],
+        [], // baseline は当日変更された購読者を含まない前提（NOT EXISTS で除外済み）
+      );
+
+      const result = await service.previewZougenNichino(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-08-31' }),
+        nSession(),
+      );
+
+      expect(result.reports[0].rows).toHaveLength(1);
+      expect(result.reports[0].rows[0]).toMatchObject({ genzai_busu: 1, zou_busu: 2, shin_busu: 3 });
+    });
+
+    it('should bind the joho_henko_tekiyo_date <= tekiyo_date predicate on the baseline query', async () => {
+      // nichinoBaselineQuery は当日ちょうどではなく「適用日以下」で有効な履歴を拾う。
+      mockNichinoPageWithBaseline([], [buildZougenNichinoRawRow({ dokusya_busu: 1 })]);
+      await service.previewZougenNichino(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-08-31' }),
+        nSession(),
+      );
+
+      const call = qbMock.andWhere.mock.calls.find(
+        ([sql, params]: any[]) =>
+          typeof sql === 'string' &&
+          /joho_henko_tekiyo_date\s*<=\s*:tekiyo_date/.test(sql) &&
+          params &&
+          Object.values(params).includes('2026-08-31'),
+      );
+      expect(call).toBeDefined();
     });
 
     it('should bind the joho_henko_tekiyo_date = tekiyo_date predicate', async () => {
@@ -595,7 +829,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
   describe('exportZougenNichinoPdf', () => {
     it('should return { fileName, recipientCount } (NO buffer/contentType) when a 管理支店 matches', async () => {
       // COVERS: 4.8 出力結果はファイル名 + 通知宛先数（PDFはブラウザへ返さない）
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
 
       const result = await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
@@ -616,10 +851,11 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     it('should bundle multiple 管理支店 into ONE paginated PDF (preview と同じ改ページ)', async () => {
       // COVERS: 4.8 全管理支店をプレビューと同じ改ページ（15行/ページ）で1つのPDFに
       // まとめる（管理支店ごとのZIPではない）。
-      qbMock.getRawMany.mockResolvedValue([
+      qbMock.getRawMany.mockResolvedValueOnce([
         buildZougenNichinoRawRow({ dokusya_id: 1, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001' }),
         buildZougenNichinoRawRow({ dokusya_id: 2, kanri_shiten_id: 21, kanri_shiten_code: '1AA3300002' }),
       ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
 
       const result = await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ kanri_shiten_id: [20, 21] }),
@@ -633,7 +869,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should archive the PDF to S3 via FileArchiveService with category=zougen-nichino (no subFolder)', async () => {
       // COVERS: 4.4 S3保存（共通 FileArchiveService）
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
         nSession(),
@@ -660,12 +897,13 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
     it('should build the filename with 管理支店名/コード when the exporter is JA_KANRI_SHITEN', async () => {
       // 顧客要件2026-07: JA管理支店ロールは自管理支店のみのスコープなので
       // 増減通知_{JA名}_{JAコード}_{管理支店名}_{管理支店コード}_{適用日} とする。
-      qbMock.getRawMany.mockResolvedValue([
+      qbMock.getRawMany.mockResolvedValueOnce([
         buildZougenNichinoRawRow({
           kanri_shiten_name: '本店管理支店',
           kanri_shiten_code: '1AA3300001',
         }),
       ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
         buildJaKanriShitenSession({
@@ -683,7 +921,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should auto-send a notification mail via notifyNichinoExport with 都道府県 + issuer + file/count when export succeeds', async () => {
       // COVERS: 4.5 メール通知（顧客要件2026-07: notifyNichinoExport）
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
         nSession(),
@@ -720,7 +959,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
         // reportNotification omitted
       );
       const svc = new ReportService(meiboNoNotify, zougenNoNotify);
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
 
       const result = await svc.exportZougenNichinoPdf(
         buildZougenNichinoQuery(),
@@ -734,7 +974,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should write an operation log with EXPORT_PDF + result_status success, targetTable t_file_download', async () => {
       // COVERS: 4.7 操作ログ — operation 'EXPORT_PDF', result_status 1, t_file_download
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(buildZougenNichinoQuery(), nSession({ account_id: 12 }), req);
 
       expect(auditLog.logOperation).toHaveBeenCalled();
@@ -754,7 +995,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should NOT log personal data (氏名/住所) in the operation log after_value', async () => {
       // COVERS: 4.7 個人情報（氏名・住所等）は含めない
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(buildZougenNichinoQuery(), nSession(), req);
 
       const after = auditLog.logOperation.mock.calls
@@ -766,7 +1008,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should print the remarks biko into PDF generation when remarks are provided', async () => {
       // COVERS: 4.4 備考（remarks）を帳票に印字
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({
           remarks: [buildZougenNichinoRemark({ kanri_shiten_id: 20, biko: '3月度分の増減通知です。' })],
@@ -781,9 +1024,10 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should render 減部数 with the ▲ minus sign in the PDF (顧客要件2026-07)', async () => {
       // dokusya_busu 7 < zenkai 10 → 減部数 3 → 帳票では「▲3」で表示する。
-      qbMock.getRawMany.mockResolvedValue([
+      qbMock.getRawMany.mockResolvedValueOnce([
         buildZougenNichinoRawRow({ dokusya_busu: 7, zenkai_dokusya_busu: 10 }),
       ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
         nSession(),
@@ -805,7 +1049,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should propagate the error (no swallow) when the S3 archive fails', async () => {
       // COVERS: 4.9 S3保存失敗は出力失敗（throw）+ エラーログ
-      qbMock.getRawMany.mockResolvedValue([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
       reportArchive.archive.mockRejectedValueOnce(new Error('s3-down'));
 
       await expect(
@@ -816,7 +1061,8 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
 
     it('should return { empty: true } and NOT generate/archive/mail when no record matches', async () => {
       // COVERS: 4.3 0件 → HTTP 200 + 空配列, ファイル生成しない
-      qbMock.getRawMany.mockResolvedValue([]);
+      qbMock.getRawMany.mockResolvedValueOnce([]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
 
       const result = await service.exportZougenNichinoPdf(
         buildZougenNichinoQuery(),
@@ -829,6 +1075,335 @@ describe('ReportService — 増減通知（日本農業新聞） (SCR-029)', () 
       expect(reportNotification.notifyNichinoExport).not.toHaveBeenCalled();
       // 0件は操作ログも残さない。
       expect(auditLog.logOperation).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ACSMS-API-029-003 — POST /api/v1/report/zougen-nichino/export-excel
+  // レポートプレビューと同じ内容をExcelで出力する（顧客要件2026-08-26）。PDF出力と
+  // 同じくブラウザへは返さず、S3アーカイブ + メール通知のみ行う。
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('exportZougenNichinoExcel', () => {
+    it('should return { fileName, recipientCount } (NO buffer) when a 管理支店 matches', async () => {
+      reportArchive.archive.mockResolvedValueOnce({
+        key: 'reports/zougen-nichino/1301002001/2026/増減通知_JAテスト_1301002001_20260301_20260301120000.xlsx',
+        filename: '増減通知_JAテスト_1301002001_20260301.xlsx',
+        fileDownloadId: 88,
+      });
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      const result = await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+
+      expect(result.empty).toBe(false);
+      expect(result.fileName).toBe('増減通知_JAテスト_1301002001_20260301.xlsx');
+      expect(result.recipientCount).toBe(3);
+      expect((result as any).buffer).toBeUndefined();
+    });
+
+    it('should build an Excel sheet mirroring the PDF layout: title, 明細見出し, 委託/販売店コード/販売店名/現在部数/増部数/減部数/新部数', async () => {
+      // COVERS: 顧客要件2026-08-26「実際の報告書フォーマットに近い」プレビュー内容
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+
+      const buffer = reportArchive.archive.mock.calls[0][0].buffer;
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as never);
+      const ws = wb.worksheets[0];
+      const text = ws
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('日本農業新聞増減通知');
+      expect(text).toContain('委託');
+      expect(text).toContain('販売店コード');
+      expect(text).toContain('販売店名');
+      expect(text).toContain('現在部数');
+      expect(text).toContain('増部数');
+      expect(text).toContain('減部数');
+      expect(text).toContain('新部数');
+      expect(text).toContain('合計');
+      expect(text).toContain('ページ数：1/1');
+    });
+
+    it('should print the remarks biko into the Excel when remarks are provided', async () => {
+      // COVERS: 備考（remarks）を帳票に印字（PDF export と同じ）
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({
+          remarks: [buildZougenNichinoRemark({ kanri_shiten_id: 20, biko: '3月度分の増減通知です。' })],
+        }),
+        nSession(),
+        req,
+      );
+
+      const buffer = reportArchive.archive.mock.calls[0][0].buffer;
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as never);
+      const text = wb.worksheets[0]
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('3月度分の増減通知です。');
+    });
+
+    it('should render 減部数 with the ▲ minus sign in the Excel (顧客要件2026-07と同じ表示規約)', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([
+        buildZougenNichinoRawRow({ dokusya_busu: 7, zenkai_dokusya_busu: 10 }),
+      ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+
+      const buffer = reportArchive.archive.mock.calls[0][0].buffer;
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as never);
+      const text = wb.worksheets[0]
+        .getSheetValues()
+        .flat()
+        .filter((v): v is string => typeof v === 'string')
+        .join('\n');
+      expect(text).toContain('▲3');
+    });
+
+    it('should bundle multiple 管理支店 into ONE paginated Excel (preview/PDF と同じ改ページ)', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([
+        buildZougenNichinoRawRow({ dokusya_id: 1, kanri_shiten_id: 20, kanri_shiten_code: '1AA3300001' }),
+        buildZougenNichinoRawRow({ dokusya_id: 2, kanri_shiten_id: 21, kanri_shiten_code: '1AA3300002' }),
+      ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      const result = await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ kanri_shiten_id: [20, 21] }),
+        nSession(),
+        req,
+      );
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1); // 1つのExcelのみ生成
+      expect(result.empty).toBe(false);
+    });
+
+    it('should archive the Excel to S3 via FileArchiveService with category=zougen-nichino (no subFolder)', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg).toEqual(
+        expect.objectContaining({
+          category: 'zougen-nichino',
+          year: '2026',
+          baseName: '増減通知_JAテスト_1301002001_20260301',
+          displayName: '増減通知_JAテスト_1301002001_20260301',
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          extension: '.xlsx',
+          nichinoDownloadAllowedFlg: true,
+        }),
+      );
+      expect(arg.subFolder).toBeUndefined();
+    });
+
+    it('should build the filename with 管理支店名/コード when the exporter is JA_KANRI_SHITEN', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([
+        buildZougenNichinoRawRow({
+          kanri_shiten_name: '本店管理支店',
+          kanri_shiten_code: '1AA3300001',
+        }),
+      ]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        buildJaKanriShitenSession({
+          ja_id: 1,
+          kanri_shiten_id: 20,
+          permissions: ['report.export_zougen_nichino'],
+        }),
+        req,
+      );
+      const arg = reportArchive.archive.mock.calls[0][0];
+      expect(arg.baseName).toBe(
+        '増減通知_JAテスト_1301002001_本店管理支店_1AA3300001_20260301',
+      );
+    });
+
+    it('should auto-send a notification mail via notifyNichinoExport when export succeeds', async () => {
+      reportArchive.archive.mockResolvedValueOnce({
+        key: 'reports/zougen-nichino/1301002001/2026/増減通知_JAテスト_1301002001_20260301_20260301120000.xlsx',
+        filename: '増減通知_JAテスト_1301002001_20260301.xlsx',
+        fileDownloadId: 88,
+      });
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+
+      expect(reportNotification.notifyNichinoExport).toHaveBeenCalledTimes(1);
+      const params = reportNotification.notifyNichinoExport.mock.calls[0][0];
+      expect(params).toEqual(
+        expect.objectContaining({
+          tekiyoDate: '2026-03-01',
+          fileName: '増減通知_JAテスト_1301002001_20260301.xlsx',
+          recordCount: 1,
+        }),
+      );
+    });
+
+    it('should still succeed (S3 + audit) when no ReportNotificationService is injected — recipientCount=0', async () => {
+      const meiboNoNotify = new MeiboReportService(
+        rirekiRepo,
+        auditLog,
+        codeService,
+        reportArchive,
+      );
+      const zougenNoNotify = new ZougenReportService(
+        rirekiRepo,
+        auditLog,
+        reportArchive,
+        pdfService,
+        // reportNotification omitted
+      );
+      const svc = new ReportService(meiboNoNotify, zougenNoNotify);
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      const result = await svc.exportZougenNichinoExcel(
+        buildZougenNichinoQuery(),
+        nSession(),
+        req,
+      );
+      expect(result.empty).toBe(false);
+      expect(result.recipientCount).toBe(0);
+      expect(reportArchive.archive).toHaveBeenCalledTimes(1);
+    });
+
+    it('should write an operation log with EXPORT_EXCEL + result_status success, targetTable t_file_download', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(buildZougenNichinoQuery(), nSession({ account_id: 12 }), req);
+
+      const successCall = auditLog.logOperation.mock.calls
+        .map(([a]: any[]) => a)
+        .find((a: any) => a.operation === 'EXPORT_EXCEL' && a.resultStatus === 1);
+      expect(successCall).toEqual(
+        expect.objectContaining({
+          logType: 1,
+          operation: 'EXPORT_EXCEL',
+          resultStatus: 1,
+          targetTable: 't_file_download',
+        }),
+      );
+    });
+
+    it('should NOT log personal data (氏名/住所) in the operation log after_value', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      await service.exportZougenNichinoExcel(buildZougenNichinoQuery(), nSession(), req);
+
+      const after = auditLog.logOperation.mock.calls
+        .map(([a]: any[]) => String(a.afterValue ?? ''))
+        .join('');
+      expect(after).not.toContain('農業');
+      expect(after).not.toContain('神田');
+    });
+
+    it('should emit an error log (log_type=3) when export fails', async () => {
+      qbMock.getRawMany.mockRejectedValueOnce(new Error('db-down'));
+
+      await expect(
+        service.exportZougenNichinoExcel(buildZougenNichinoQuery(), nSession(), req),
+      ).rejects.toBeDefined();
+      expect(auditLog.logError).toHaveBeenCalled();
+      const lastCall = auditLog.logError.mock.calls[0];
+      expect(lastCall[1]).toBe('EXPORT_EXCEL');
+    });
+
+    it('should propagate the error (no swallow) when the S3 archive fails', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([buildZougenNichinoRawRow()]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+      reportArchive.archive.mockRejectedValueOnce(new Error('s3-down'));
+
+      await expect(
+        service.exportZougenNichinoExcel(buildZougenNichinoQuery(), nSession(), req),
+      ).rejects.toBeDefined();
+      expect(auditLog.logError).toHaveBeenCalled();
+    });
+
+    it('should return { empty: true } and NOT generate/archive/mail when no record matches', async () => {
+      qbMock.getRawMany.mockResolvedValueOnce([]);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      const result = await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery(),
+        nSession(),
+        req,
+      );
+      expect(result).toEqual({ empty: true });
+      expect(reportArchive.archive).not.toHaveBeenCalled();
+      expect(reportNotification.notifyNichinoExport).not.toHaveBeenCalled();
+      expect(auditLog.logOperation).not.toHaveBeenCalled();
+    });
+
+    it('should build a production-scale Excel (2,000 購読者 across 100 管理支店) in well under a second, WITHOUT any mergeCells call (regression: SCR-028 mergeCells O(n²) hung the whole backend for 2+ minutes on real data)', async () => {
+      // COVERS: zougen-hanbaiten Excel export で実際に発生した障害の再発防止。
+      // このExcel builderは最初からセル結合を一切使わない設計にしたため、大量ページ
+      // でも高速であることを実測で担保する。
+      const rows = Array.from({ length: 2000 }, (_, i) =>
+        buildZougenNichinoRawRow({
+          dokusya_id: 40000 + i,
+          dokusya_rireki_id: 41000 + i,
+          kanri_shiten_id: 20 + (i % 100),
+          kanri_shiten_code: `1AA${String(3300001 + (i % 100)).padStart(7, '0')}`,
+          hanbaiten_id: 200 + (i % 100),
+          hanbaiten_code: String(10000000 + i).slice(0, 8),
+          hanbaiten_name: `販売店${i}`,
+          dokusya_busu: 7,
+          zenkai_dokusya_busu: 10,
+        }),
+      );
+      qbMock.getRawMany.mockResolvedValueOnce(rows);
+      qbMock.getRawMany.mockResolvedValue([]); // nichinoBaselineQuery（動きの無い既存購読者。既定は空 — 個別テストは mockNichinoPageWithBaseline を使用）
+
+      const start = Date.now();
+      const result = await service.exportZougenNichinoExcel(
+        buildZougenNichinoQuery({ tekiyo_date: '2026-03-01' }),
+        nSession(),
+        req,
+      );
+      const elapsedMs = Date.now() - start;
+
+      expect(result.empty).toBe(false);
+      expect(elapsedMs).toBeLessThan(2000);
+
+      const buffer = reportArchive.archive.mock.calls[0][0].buffer;
+      const ExcelJS = await import('exceljs');
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer as never);
+      expect(wb.worksheets[0].model.merges ?? []).toHaveLength(0);
     });
   });
 });

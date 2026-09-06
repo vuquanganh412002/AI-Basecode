@@ -30,6 +30,7 @@ vi.mock('@/api/koza-furikae/koza-furikae', () => ({
   getInitialKozaFurikae: vi.fn(),
   previewKozaFurikae: vi.fn(),
   exportKozaFurikae: vi.fn(),
+  exportKozaFurikaeExcel: vi.fn(),
 }));
 vi.mock('@/api/kanri-shiten/kanri-shiten', () => ({
   getKanriShitenDropdown: vi.fn(),
@@ -68,9 +69,8 @@ interface RenderOptions {
 }
 
 async function setApiMocks() {
-  const { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae } = await import(
-    '@/api/koza-furikae/koza-furikae'
-  );
+  const { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae, exportKozaFurikaeExcel } =
+    await import('@/api/koza-furikae/koza-furikae');
   const { getKanriShitenDropdown } = await import('@/api/kanri-shiten/kanri-shiten');
   const { getShitenDropdown, getKozaShitenDropdown } = await import('@/api/shiten/shiten');
   vi.mocked(getInitialKozaFurikae).mockResolvedValue(buildKozaFurikaeInitial());
@@ -82,7 +82,13 @@ async function setApiMocks() {
     blob: new Blob(['ZENOUTFD'], { type: 'text/plain' }),
     filename: 'ZENOUTFD',
   });
-  return { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae };
+  vi.mocked(exportKozaFurikaeExcel).mockResolvedValue({
+    blob: new Blob(['PK'], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    }),
+    filename: '口座振替データ_2026年05月27日.xlsx',
+  });
+  return { getInitialKozaFurikae, previewKozaFurikae, exportKozaFurikae, exportKozaFurikaeExcel };
 }
 
 async function renderView(opts: RenderOptions = {}): Promise<{
@@ -123,6 +129,7 @@ async function renderView(opts: RenderOptions = {}): Promise<{
 
 const previewBtn = () => '[data-test="preview-btn"]';
 const createBtn = () => '[data-test="create-btn"]';
+const exportExcelBtn = () => '[data-test="export-excel-btn"]';
 
 function fillRequired(wrapper: any, overrides: Record<string, unknown> = {}): void {
   Object.assign((wrapper.vm as any).formState, buildKozaFurikaeForm(overrides));
@@ -424,5 +431,97 @@ describe('KozaFurikaeExportView — ファイル作成', () => {
     await flushPromises();
 
     expect(message.warning).toHaveBeenCalledWith('対象データがありません。');
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────
+// 4. Excel出力 — レポートプレビュー内容の Excel 出力（顧客要件 2026-08-26）
+// ───────────────────────────────────────────────────────────────────────
+describe('KozaFurikaeExportView — Excel出力', () => {
+  beforeEach(async () => {
+    await setApiMocks();
+  });
+
+  it('should NOT render the Excel出力 button before previewing', async () => {
+    const { wrapper } = await renderView();
+    expect(wrapper.find(exportExcelBtn()).exists()).toBe(false);
+  });
+
+  it('should call exportKozaFurikaeExcel with the edited 金額 rows when Excel出力 is clicked', async () => {
+    const { exportKozaFurikaeExcel } = await import('@/api/koza-furikae/koza-furikae');
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    expect(wrapper.find(exportExcelBtn()).exists()).toBe(true);
+
+    (wrapper.vm as any).previewRows[0].furikae_kingaku = 8000;
+    await flushPromises();
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportKozaFurikaeExcel).toHaveBeenCalledTimes(1);
+    const arg = vi.mocked(exportKozaFurikaeExcel).mock.calls[0]?.[0];
+    expect(arg.rows).toEqual([
+      { dokusya_id: 1, furikae_kingaku: 8000 },
+      { dokusya_id: 2, furikae_kingaku: 4900 },
+    ]);
+    expect(arg.jastem_itakusha_code).toBe('1234567890');
+  });
+
+  it('should trigger a file download when Excel出力 succeeds (no data mutation — separate from ファイル作成)', async () => {
+    const { exportKozaFurikae } = await import('@/api/koza-furikae/koza-furikae');
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(createObjectURL).toHaveBeenCalled();
+    // ファイル作成（全銀CSV/t_koza_furikae 確定）は呼ばれない — 別の読み取り専用出力。
+    expect(exportKozaFurikae).not.toHaveBeenCalled();
+  });
+
+  it('should show the JASTEM error banner and NOT call exportKozaFurikaeExcel when a JASTEM field is blank', async () => {
+    const { exportKozaFurikaeExcel } = await import('@/api/koza-furikae/koza-furikae');
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+    (wrapper.vm as any).formState.jastem_koza_no = '';
+    await flushPromises();
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(exportKozaFurikaeExcel).not.toHaveBeenCalled();
+    expect(wrapper.find('[data-test="jastem-error"]').exists()).toBe(true);
+  });
+
+  it('should toast 対象データがありません。 (warning) when export-excel rejects with NO_TARGET_DATA', async () => {
+    const { exportKozaFurikaeExcel } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(exportKozaFurikaeExcel).mockRejectedValueOnce({ error_code: 'NO_TARGET_DATA' });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(message.warning).toHaveBeenCalledWith('対象データがありません。');
+  });
+
+  it('should render the 失効単価 error list and discard the preview when export-excel rejects with INACTIVE_TANKA_REFERENCED', async () => {
+    const { exportKozaFurikaeExcel } = await import('@/api/koza-furikae/koza-furikae');
+    vi.mocked(exportKozaFurikaeExcel).mockRejectedValueOnce({
+      error_code: 'INACTIVE_TANKA_REFERENCED',
+      message: 'x',
+      total: 1,
+      errors: [{ field: '1', message: 'ﾔﾏﾀﾞ ﾀﾛｳ' }],
+    });
+    const { wrapper } = await renderView();
+    await doPreview(wrapper);
+
+    await wrapper.find(exportExcelBtn()).trigger('click');
+    await flushPromises();
+
+    expect(wrapper.find('[data-test="inactive-tanka-error-list"]').exists()).toBe(true);
+    expect((wrapper.vm as any).previewed).toBe(false);
   });
 });

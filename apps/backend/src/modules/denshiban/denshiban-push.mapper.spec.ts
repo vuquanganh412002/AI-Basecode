@@ -67,6 +67,35 @@ describe('denshiban-push.mapper', () => {
       expect(p).not.toHaveProperty('notify_flg');
     });
 
+    describe('payment_start（不具合修正2026-08: 以前は0固定で翌月1日選択が反映されなかった）', () => {
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('dokusyaKaishiDate が本日なら payment_start=0', () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-08-20T22:00:00.000Z')); // 2026-08-21 JST
+        const p = toCreatePayload(
+          buildDokusya({ dokusyaKaishiDate: '2026-08-21' }),
+          '1301002001',
+        );
+        expect(p.payment_start).toBe('0');
+      });
+
+      it('dokusyaKaishiDate が翌月1日なら payment_start=1', () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-08-20T22:00:00.000Z')); // 2026-08-21 JST → 翌月1日=2026-09-01
+        const p = toCreatePayload(
+          buildDokusya({ dokusyaKaishiDate: '2026-09-01' }),
+          '1301002001',
+        );
+        expect(p.payment_start).toBe('1');
+      });
+
+      it('dokusyaKaishiDate 未設定なら従来どおり payment_start=0', () => {
+        const p = toCreatePayload(buildDokusya({ dokusyaKaishiDate: undefined }), '1301002001');
+        expect(p.payment_start).toBe('0');
+      });
+    });
+
     it('gender 2(女)→sex 0、9→sex 9', () => {
       expect(toCreatePayload(buildDokusya({ gender: 2 }), '1301002001').sex).toBe('0');
       expect(toCreatePayload(buildDokusya({ gender: null }), '1301002001').sex).toBe('9');
@@ -310,63 +339,16 @@ describe('denshiban-push.mapper', () => {
       });
     });
 
-    // 顧客要件 2026-08: biko の行を remarks1〜5 へ割り当てる。pull 側
-    // (dokusya-sync.mapper#joinRemarks) が remarks を '\n' で連結して biko を
-    // 作るので、その逆変換にあたる。
-    it('備考は行ごとに remarks1〜4 へ割り当てる', () => {
+    // 顧客要件 2026-08-26: biko は電子版 remarks1〜5 とマッピングしない（cloud
+    // 専有列）。push payload には remarks1〜5 のキーを一切含めない。
+    it('備考（biko）が何であっても remarks1〜5 は一切送らない', () => {
       const p = toCreatePayload(
-        buildDokusya({ biko: '1行目\n2行目\n3行目\n4行目' }),
+        buildDokusya({ biko: '1行目\n2行目\n3行目\n4行目\n5行目\n6行目' }),
         '1301002001',
       );
-      expect(p.remarks1).toBe('1行目');
-      expect(p.remarks2).toBe('2行目');
-      expect(p.remarks3).toBe('3行目');
-      expect(p.remarks4).toBe('4行目');
-      expect(p).not.toHaveProperty('remarks5');
-    });
-
-    it('備考 5行目以降は改行を保ったまま remarks5 へまとめる', () => {
-      const p = toCreatePayload(
-        buildDokusya({ biko: '1\n2\n3\n4\n5\n6\n7' }),
-        '1301002001',
-      );
-      expect(p.remarks4).toBe('4');
-      // 改行を潰すと 電子版→cloud→電子版 の往復で行が失われるため保持する。
-      expect(p.remarks5).toBe('5\n6\n7');
-    });
-
-    it('備考が1行なら remarks2〜5 はキーごと送らない', () => {
-      const p = toCreatePayload(buildDokusya({ biko: 'ひとことだけ' }), '1301002001');
-      expect(p.remarks1).toBe('ひとことだけ');
-      for (const k of ['remarks2', 'remarks3', 'remarks4', 'remarks5']) {
-        expect(p).not.toHaveProperty(k);
-      }
-    });
-
-    it('備考が空なら remarks は1つも送らない', () => {
-      const p = toCreatePayload(buildDokusya({ biko: '' }), '1301002001');
       for (const k of ['remarks1', 'remarks2', 'remarks3', 'remarks4', 'remarks5']) {
         expect(p).not.toHaveProperty(k);
       }
-    });
-
-    it('remarks は各スロット 255 文字で切り詰める', () => {
-      const long = 'あ'.repeat(300);
-      const p = toCreatePayload(
-        buildDokusya({ biko: `${long}\n${long}` }),
-        '1301002001',
-      );
-      expect(p.remarks1).toHaveLength(255);
-      expect(p.remarks2).toHaveLength(255);
-    });
-
-    it('CRLF 改行でも行として分割する（Excel 取込由来の備考）', () => {
-      const p = toCreatePayload(
-        buildDokusya({ biko: '1行目\r\n2行目' }),
-        '1301002001',
-      );
-      expect(p.remarks1).toBe('1行目');
-      expect(p.remarks2).toBe('2行目');
     });
   });
 
@@ -380,9 +362,43 @@ describe('denshiban-push.mapper', () => {
 
   describe('toApprovePayload / toUnapprovePayload', () => {
     it('id + payment_start のみ（同一シグネチャ）', () => {
-      const approve = toApprovePayload('1301002001', 555);
+      const approve = toApprovePayload(buildDokusya(), '1301002001', 555);
       expect(approve).toEqual({ jacd_execute: '1301002001', id: '555', payment_start: '0' });
-      expect(toUnapprovePayload('1301002001', 555)).toEqual(approve);
+      expect(toUnapprovePayload(buildDokusya(), '1301002001', 555)).toEqual(approve);
+    });
+
+    describe('payment_start は f.dokusyaKaishiDate から算出する（固定値'
+      + 'にすると翌月1日登録の会員が承認操作で本日開始に戻りうるため）', () => {
+      afterEach(() => {
+        jest.useRealTimers();
+      });
+
+      it('dokusyaKaishiDate が翌月1日なら payment_start=1', () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-08-20T22:00:00.000Z')); // 2026-08-21 JST → 翌月1日=2026-09-01
+        const approve = toApprovePayload(
+          buildDokusya({ dokusyaKaishiDate: '2026-09-01' }),
+          '1301002001',
+          555,
+        );
+        expect(approve.payment_start).toBe('1');
+        expect(
+          toUnapprovePayload(
+            buildDokusya({ dokusyaKaishiDate: '2026-09-01' }),
+            '1301002001',
+            555,
+          ).payment_start,
+        ).toBe('1');
+      });
+
+      it('dokusyaKaishiDate が本日なら payment_start=0', () => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-08-20T22:00:00.000Z')); // 2026-08-21 JST
+        const approve = toApprovePayload(
+          buildDokusya({ dokusyaKaishiDate: '2026-08-21' }),
+          '1301002001',
+          555,
+        );
+        expect(approve.payment_start).toBe('0');
+      });
     });
   });
 

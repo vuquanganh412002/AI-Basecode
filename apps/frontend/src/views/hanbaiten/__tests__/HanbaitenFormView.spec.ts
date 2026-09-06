@@ -974,6 +974,64 @@ describe('HanbaitenFormView — 都道府県 dropdown (COMMON-001)', () => {
     const { getTodofukenList } = await import('@/api/todofuken/todofuken');
     expect(getTodofukenList).toHaveBeenCalledTimes(1);
   });
+
+  // 顧客CR 2026-08-24 — 都道府県は JA 追従の read-only 固定から、初期値は
+  // JA から自動セットしつつユーザーが変更できる editable dropdown へ変更。
+  it('should default todofuken_code to the session user JA prefecture when mounted in create mode', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as { formState: { todofuken_code: string } };
+    expect(vm.formState.todofuken_code).toBe('13');
+  });
+
+  it('should NOT render 都道府県 as a disabled input (read-only lock removed)', async () => {
+    const { wrapper } = await renderView();
+    const el = wrapper.find('#todofuken_code');
+    expect(el.exists()).toBe(true);
+    expect(el.attributes('disabled')).toBeUndefined();
+    expect(wrapper.html()).not.toContain('ant-select-disabled');
+  });
+
+  it('should allow changing todofuken_code away from the JA default', async () => {
+    const { wrapper } = await renderView();
+    const vm = wrapper.vm as unknown as { formState: { todofuken_code: string } };
+    vm.formState.todofuken_code = '27';
+    await flushPromises();
+    expect(vm.formState.todofuken_code).toBe('27');
+  });
+
+  it('should show 必須項目です。 when todofuken_code is cleared and 登録 is clicked', async () => {
+    const { wrapper } = await renderView();
+    const { createHanbaiten } = await import('@/api/hanbaiten/hanbaiten');
+
+    const vm = wrapper.vm as any;
+    await fillForm(vm, buildCreateHanbaitenForm({ todofuken_code: '' }));
+
+    await wrapper.find('form').trigger('submit');
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('必須項目です。');
+    expect(createHanbaiten).not.toHaveBeenCalled();
+  });
+
+  it('should re-default todofuken_code from the newly selected JA when NICHINO_STAFF switches JA', async () => {
+    const staffUser = () =>
+      buildAuthUser({
+        role_code: 'NICHINO_STAFF',
+        role_id: 2,
+        ja_id: null,
+        permissions: ['hanbaiten.daiko_input'],
+      });
+    const { wrapper } = await renderView({ user: staffUser() });
+    wrapper.findComponent({ name: 'BaseJaDropdown' }).vm.$emit('select', {
+      ja_id: 42,
+      ja_code: '0042',
+      ja_name: 'JA 四二農協',
+      todofuken_code: '27',
+    });
+    await flushPromises();
+    const vm = wrapper.vm as unknown as { formState: { todofuken_code: string } };
+    expect(vm.formState.todofuken_code).toBe('27');
+  });
 });
 
 // ───────────────────────────────────────────────────────────────────────
@@ -1043,6 +1101,10 @@ describe('HanbaitenFormView — NICHINO_STAFF 代行入力 path', () => {
       hanbaiten_code: 'H777',
       hanbaiten_name: '販売店A',
       itaku_kubun: 2,
+      // `update:value` (unlike `@select`) doesn't run onJaSelect, so
+      // 都道府県 (now a required, user-editable field — 顧客CR 2026-08-24)
+      // stays blank unless set explicitly here.
+      todofuken_code: '13',
     });
     const form = wrapper.find('form');
     await form.trigger('submit');

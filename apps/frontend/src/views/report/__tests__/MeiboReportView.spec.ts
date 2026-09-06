@@ -155,6 +155,12 @@ describe('MeiboReportView — 画面初期表示', () => {
     expect(select.props('dummy')).toBe('exclude');
   });
 
+  it('should exclude 廃店 (haiten_flg=true) from the 販売店 dropdown (顧客要件 2026-08-26)', async () => {
+    const { wrapper } = await renderView();
+    const select = wrapper.findComponent({ name: 'BaseHanbaitenSelect' });
+    expect(select.props('activeOnly')).toBe(true);
+  });
+
   it('should render the 適用日 / 帳票種別 / 購読種別 labels when mounted', async () => {
     const { wrapper } = await renderView();
     const text = wrapper.text();

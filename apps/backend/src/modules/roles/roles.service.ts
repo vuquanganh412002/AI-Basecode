@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AuditOperation } from '@/common/enums';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import { SuccessMessage } from '@/common/constants/success-message.constant';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type { Request } from 'express';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
@@ -25,7 +27,6 @@ import {
 } from './roles.mapper';
 import { UpdateRoleDto } from './dto/update-role.dto';
 
-const SCREEN_NAME = 'ロール管理画面 (ACSMS-SCR-027)';
 const TABLE_NAME = 'm_roles';
 
 @Injectable()
@@ -197,7 +198,7 @@ export class RolesService {
 
         // [audit-log-in-tx] — tx 内で業務書込 + 監査行を一括 commit/rollback。
         await this.auditLog.logUpdate(
-          buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, roleId),
+          buildAuditCtx(session, req, ScreenName.ACSMS_SCR_027, TABLE_NAME, roleId),
           {
             role_id: before.roleId,
             role_code: before.roleCode,
@@ -234,13 +235,13 @@ export class RolesService {
           refreshedPermissionIds,
           refreshedLockedIds,
         ),
-        message: '更新しました。',
+        message: SuccessMessage.UPDATED,
       };
     } catch (err) {
       // [audit-error-log] — ロールバック済み tx の外で失敗トレースを残す。ここで
       // manager は渡さない。
       await this.auditLog.logError(
-        buildAuditCtx(session, req, SCREEN_NAME, TABLE_NAME, roleId),
+        buildAuditCtx(session, req, ScreenName.ACSMS_SCR_027, TABLE_NAME, roleId),
         AuditOperation.UPDATE,
         err as Error,
       );

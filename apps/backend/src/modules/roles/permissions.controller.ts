@@ -31,7 +31,7 @@ export class PermissionsController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '権限一覧取得 — ACSMS-API-027-004' })
   @ApiResponse({ status: 200, type: PermissionListResponseDto })
-  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください' })
+  @ApiResponse({ status: 401, description: 'セッションが切れました。再度ログインしてください。' })
   @ApiResponse({ status: 403, description: 'この画面へのアクセス権限がありません。' })
   findAll() {
     return this.rolesService.findAllPermissions();

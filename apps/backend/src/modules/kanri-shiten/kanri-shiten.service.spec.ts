@@ -372,7 +372,24 @@ describe('KanriShitenService — SCR-008 (list / delete)', () => {
       // COVERS: §4.4 conflict check — t_dokusya
       repo.findOne.mockResolvedValue(buildKanriShiten());
       dataSource.query.mockImplementation(async (sql: string) => {
-        if (/t_dokusya/i.test(sql)) return [{ count: '1' }];
+        if (/FROM t_dokusya\b/i.test(sql)) return [{ count: '1' }];
+        return [{ count: '0' }];
+      });
+
+      await expect(service.remove(5, buildSession(), baseReq))
+        .rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException when t_dokusya_rireki has rows referencing the kanri_shiten (履歴テーブル・不具合修正2026-08)', async () => {
+      // COVERS: §4.4 conflict check — t_dokusya_rireki.kanri_shiten_id FK
+      // (実DBには存在するが従来ガード対象から漏れていた)。deleted_at 列が
+      // 無い append-only テーブルなので hasDeletedAt:false 経路も兼ねて確認。
+      repo.findOne.mockResolvedValue(buildKanriShiten());
+      dataSource.query.mockImplementation(async (sql: string) => {
+        if (/FROM t_dokusya_rireki\b/i.test(sql)) {
+          expect(sql).not.toMatch(/deleted_at/i);
+          return [{ count: '1' }];
+        }
         return [{ count: '0' }];
       });
 

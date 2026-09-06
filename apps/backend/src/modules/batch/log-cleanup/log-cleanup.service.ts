@@ -5,10 +5,8 @@ import { DataSource } from 'typeorm';
 import type { BatchJob } from '@/batch/batch-job.interface';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import { SystemActor } from '@/common/constants/system-actor.constant';
+import { ScreenName } from '@/common/constants/screen-name.constant';
 import { logBatchRun } from '../batch-run-audit';
-
-/** t_log.gamen_name。実行体を追えるよう npm script 名を添える。 */
-const BATCH_SCREEN = 'ログ保持期間クリーンアップバッチ (log-cleanup)';
 
 /** 1回の DELETE で消す最大行数。大量削除でのロング・ロック／WAL 肥大を避けるため
  *  チャンク分割し、対象が無くなるまでループする。 */
@@ -88,7 +86,7 @@ export class LogCleanupService implements BatchJob {
     // 後から区別できるようにするため。CloudWatch のログにも同じ内容が出るが
     // あちらにも保持期間があり、DB 側の記録とは別管理になる。
     await logBatchRun(this.auditLog, {
-      screen: BATCH_SCREEN,
+      screen: ScreenName.LOG_CLEANUP_BATCH,
       operation: 'ログ保持期間削除',
       actor: SystemActor.BATCH_NIGHTLY,
       table: 't_log',

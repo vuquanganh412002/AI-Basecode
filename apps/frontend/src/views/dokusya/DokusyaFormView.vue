@@ -39,6 +39,7 @@ import {
   updateDokusya,
   approveDokusya,
   rejectDokusya,
+  registerTankaDokusya,
   type DenshiShoninEditBody,
   type CreateDokusyaRequest,
   type UpdateDokusyaRequest,
@@ -331,13 +332,21 @@ const shubetsuPermitted = computed(() =>
  * ＋もう campaign でない」という新条件へ自ら踏み込んでしまうため）。
  * ロード時点の値で判定すれば、保存するまでは編集可能なまま、保存後の
  * 再読込で正しく読取専用に切り替わる。
+ *
+ * 併読／電子版クレカの2条件は isTankaRegistrationPending（単価初回登録待ち・
+ * 下部で定義）の間だけ除外する。単価が未登録の間は「編集不可」ではなく
+ * 「単価だけ編集可（承認・登録ボタン）」という第3の状態にするため
+ * （不具合修正2026-08）。3番目の条件（denshi_kaiin_id 未連携）は無関係な別
+ * シナリオ（UI 作成直後で denshi_shonin_status=PENDING(0) が付くため
+ * isTankaRegistrationPending には該当しない）なので対象外のまま。
  */
 const isRecordReadOnly = computed(
   () =>
     isEdit.value &&
-    (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH ||
-      (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
-        Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD) ||
+    ((!isTankaRegistrationPending.value &&
+      (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.BOTH ||
+        (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
+          Number(formState.shiharai_hoho) === ShiharaiHoho.CREDIT_CARD))) ||
       (Number(formState.dokusya_shubetsu) === DokusyaShubetsu.DIGITAL &&
         detailDenshiKaiinId.value === null &&
         !isCampaignTanka(originalTankaId.value))),
@@ -396,6 +405,24 @@ const isDenshiRejected = computed(
     isEdit.value &&
     isDigital.value &&
     detailDenshiShoninStatus.value === DenshiShoninStatus.REJECTED,
+);
+
+/**
+ * 単価初回登録待ち（不具合修正2026-08）— 承認/否認ワークフロー自体が存在しない
+ * カテゴリ（電子版クレジットカード決済者・併読・電子版無料会員）は
+ * denshi_shonin_status=NULL のまま同期される。これらは電子版同期が
+ * 「単価は承認画面で登録する」前提で tanka_id を持たせないため、通常の承認
+ * フローが無いぶん tanka_id=null のまま固まってしまう。isPending と同じ
+ * 形の別モード（第3の状態）として扱い、単価だけ編集可にする専用ボタンを出す。
+ * 紙版は denshi_shonin_status が常に NULL のため isDigitalOrBoth で除外する
+ * （isPending/isDenshiRejected の isDigital 判定と異なり、併読も対象に含む）。
+ */
+const isTankaRegistrationPending = computed(
+  () =>
+    isEdit.value &&
+    isDigitalOrBoth.value &&
+    detailDenshiShoninStatus.value === null &&
+    originalTankaId.value === null,
 );
 
 /**
@@ -475,15 +502,16 @@ const filteredKanriShitenOptions = computed<KanriShitenDropdownItem[]>(() => {
  * 配下の支店だけを候補に出す (画面項目定義 No.6 — 管理支店配下の支店)。
  * 管理支店未選択のときは空配列を返し、テンプレート側で select を非活性化する。
  *
- * 金融支店 (kinyu_shiten_flg=true) は除外する — 金融支店は引落口座支店
- * (kinyuShitenOptions) の候補専用で、購読者の所属支店としては選べない。
+ * 金融支店 (kinyu_shiten_flg=true) も候補に含める（顧客CR 2026-08-24）。
+ * 以前は除外していたが、配達担当支店と引落口座支店が同一の物理支店である
+ * ケースで、金融フラグ付き支店をここで選べないと JA は同じ支店を非金融版
+ * としてもう1件 master 登録する二重登録を強いられていた。引落口座支店
+ * (kinyuShitenOptions) 側は従来どおり kinyu_shiten_flg=true のみに絞る。
  */
 const filteredShitenOptions = computed<ShitenDropdownItem[]>(() => {
   if (formState.kanri_shiten_id == null) return [];
   return shitenOptions.value.filter(
-    (s) =>
-      Number(s.kanri_shiten_id) === Number(formState.kanri_shiten_id) &&
-      s.kinyu_shiten_flg !== true,
+    (s) => Number(s.kanri_shiten_id) === Number(formState.kanri_shiten_id),
   );
 });
 
@@ -862,9 +890,10 @@ const canSelectMode = computed(
   () =>
     isEdit.value &&
     !isRecordReadOnly.value &&
-    // 承認待ち(電子版)は承認/否認フロー、解約読込は再購読フローのため
-    // モード選択（参照→当日/予約）の対象外とする。
+    // 承認待ち(電子版)は承認/否認フロー、単価初回登録待ちは専用ボタン、
+    // 解約読込は再購読フローのため、いずれもモード選択（参照→当日/予約）の対象外。
     !isPending.value &&
+    !isTankaRegistrationPending.value &&
     Number(originalTetsuzukiShurui.value) !== TetsuzukiShurui.KAIYAKU &&
     authStore.hasPermission('dokusya.update'),
 );
@@ -900,8 +929,12 @@ const formLocked = computed(
     isCancelledLocked.value ||
     isDenshiRejected.value,
 );
-// フォーム全体の読取専用（formLocked ＋ 承認待ち）。承認待ちは単価以外を全ロック。
-const readOnlyForm = computed(() => formLocked.value || isPending.value);
+// フォーム全体の読取専用（formLocked ＋ 承認待ち ＋ 単価初回登録待ち）。
+// 承認待ちは単価以外を全ロック、単価初回登録待ちは単価のみ編集可（他は
+// formLocked に含めない = tanka_id の :disabled="formLocked" だけ素通りする）。
+const readOnlyForm = computed(
+  () => formLocked.value || isPending.value || isTankaRegistrationPending.value,
+);
 // 当日変更モードで帳票影響項目をロックするか（紙版のみ。電子版は全項目 当日反映可）。
 const reportFieldsLocked = computed(() => isTodayMode.value && isPaper.value);
 // 帳票影響項目の最終 disabled（読取専用 or 当日変更・紙版ロック）。
@@ -1457,6 +1490,25 @@ const HIRAGANA_MSG = 'ひらがな・数字で入力してください。';
 const KANJI_RE = /^[一-鿿々〇豈-﫿ぁ-ゟァ-ヿｦ-ﾟA-Za-zＡ-Ｚａ-ｚ0-9０-９\s]+$/u;
 const KANJI_MSG = '漢字・ひらがな・カタカナ・アルファベット・数字で入力してください。';
 const POSTAL_MSG = '郵便番号は半角数字7桁で入力してください。';
+// TEL1/TEL2（旧: 連絡先1/2）— 半角数字のみ・ハイフン不可（顧客CR 2026-08-24）。
+// BE create-dokusya.dto.ts の TEL_DIGITS_RE と同一パターン。
+const TEL_DIGITS_RE = /^\d+$/;
+const TEL_DIGITS_MSG = '半角数字のみで入力してください（ハイフン不可）。';
+
+/**
+ * 任意項目の TEL — 入力時のみ半角数字・ハイフン不可を検証する。
+ * validateHaitatsuCluster の Cognitive Complexity を抑えるため
+ * inline if を関数呼び出しに切り出す（S3776）。
+ */
+function checkOptionalTelField(
+  errs: Record<string, string>,
+  field: string,
+  value: string | undefined,
+): void {
+  if (value && !TEL_DIGITS_RE.test(value)) {
+    errs[field] = TEL_DIGITS_MSG;
+  }
+}
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const EMAIL_MSG = '正しいメールアドレスを入力してください。';
 const BIKO_MAX = 500;
@@ -1527,7 +1579,12 @@ function validateAddressCluster(errs: Record<string, string>): void {
   if (!formState.todofuken_code?.trim()) errs.todofuken_code = REQUIRED_MSG;
   if (!formState.shikuchoson?.trim()) errs.shikuchoson = REQUIRED_MSG;
   if (!formState.chome_banchi?.trim()) errs.chome_banchi = REQUIRED_MSG;
-  if (!formState.renrakusaki_1?.trim()) errs.renrakusaki_1 = REQUIRED_MSG;
+  if (!formState.renrakusaki_1?.trim()) {
+    errs.renrakusaki_1 = REQUIRED_MSG;
+  } else if (!TEL_DIGITS_RE.test(formState.renrakusaki_1)) {
+    errs.renrakusaki_1 = TEL_DIGITS_MSG;
+  }
+  checkOptionalTelField(errs, 'renrakusaki_2', formState.renrakusaki_2);
 }
 
 /** 必須 FK ドロップダウン（clearable select → 安全のため == null で判定）。 */
@@ -1609,6 +1666,9 @@ function validateHaitatsuCluster(errs: Record<string, string>): void {
   } else if (!HIRAGANA_RE.test(formState.haitatsu_shimei_kana_mei)) {
     errs.haitatsu_shimei_kana_mei = HIRAGANA_MSG;
   }
+  // TEL1/TEL2（配達先）— 任意項目だが入力時は半角数字のみ・ハイフン不可。
+  checkOptionalTelField(errs, 'haitatsu_renrakusaki_1', formState.haitatsu_renrakusaki_1);
+  checkOptionalTelField(errs, 'haitatsu_renrakusaki_2', formState.haitatsu_renrakusaki_2);
 }
 
 /** §10.1 — 口座引落 → bank cluster (支店/貯金種目/口座番号/口座名義) required. */
@@ -1625,8 +1685,13 @@ function validateBankCluster(errs: Record<string, string>): void {
     errs.hikiotoshi_koza_meigi = REQUIRED_MSG;
 }
 
-/** 備考 max-length + 購読中止日必須 + 販売店適用日 past-date guard. */
-function validateMisc(errs: Record<string, string>): void {
+/**
+ * 備考(biko) の文字数上限 + 電子版/併読の行別上限 +
+ * 読者属性(dokusyaso_bunrui) 必須チェック。
+ */
+function validateBikoAndDokusyaso(errs: Record<string, string>): void {
+  // biko は購読種別を問わず同一ルール（500文字以内。顧客要件2026-08-26で
+  // 電子版・併読の行別上限チェックは撤廃し紙版と統一）。
   if (formState.biko && formState.biko.length > BIKO_MAX) {
     errs.biko = BIKO_MSG;
   }
@@ -1635,9 +1700,15 @@ function validateMisc(errs: Record<string, string>): void {
   if (isDigitalOrBoth.value && !formState.dokusyaso_bunrui?.trim()) {
     errs.dokusyaso_bunrui = REQUIRED_MSG;
   }
-  // 「その他」の自由記述は入力欄が出ている時だけ検証する（隠れている間の値は
-  // watch がクリア済み）。maxlength 属性で打ち止めになるが、IME 確定やペースト
-  // 経路で超過しうるので BE と同じ 255 をここでも見る。
+}
+
+/**
+ * 読者属性/農業者区分の「その他」自由記述 max-length。入力欄が出ている
+ * 時だけ検証する（隠れている間の値は watch がクリア済み）。
+ */
+function validateSonotaLengths(errs: Record<string, string>): void {
+  // maxlength 属性で打ち止めになるが、IME 確定やペースト経路で超過しうる
+  // ので BE と同じ 255 をここでも見る。
   if (
     showDokusyasoSonota.value &&
     formState.dokusyaso_bunrui_sonota.length > BUNRUI_SONOTA_MAX
@@ -1650,6 +1721,10 @@ function validateMisc(errs: Record<string, string>): void {
   ) {
     errs.nogyosya_bunrui_sonota = NOGYOSYA_SONOTA_MSG;
   }
+}
+
+/** 購読部数: 解約以外は1以上 + 電子版は1固定。 */
+function validateBusu(errs: Record<string, string>): void {
   // 購読部数: 解約以外は 1 以上（解約 (手続種類=0) は §8 で 0 固定・readonly）。
   if (!isCancelTetsuzuki.value && Number(formState.dokusya_busu) <= 0) {
     errs.dokusya_busu = BUSU_MIN_MSG;
@@ -1663,6 +1738,13 @@ function validateMisc(errs: Record<string, string>): void {
   ) {
     errs.dokusya_busu = DIGITAL_BUSU_MSG;
   }
+}
+
+/** 備考 max-length + 購読中止日必須 + 販売店適用日 past-date guard. */
+function validateMisc(errs: Record<string, string>): void {
+  validateBikoAndDokusyaso(errs);
+  validateSonotaLengths(errs);
+  validateBusu(errs);
   // 購読中止日（解約予約）の入力・検証は本フォームから撤去した（顧客要件 2026-07
   // 改訂）。停止は一覧の「購読を停止する」ポップアップ + 専用APIで行う。
   validateTekiyoDates(errs);
@@ -2119,6 +2201,35 @@ function buildShoninEditBody(): DenshiShoninEditBody {
     hikiotoshi_koza_no: formState.hikiotoshi_koza_no,
     hikiotoshi_koza_meigi: formState.hikiotoshi_koza_meigi,
   };
+}
+
+// ─── 単価初回登録 (denshi_shonin_status=NULL 専用・不具合修正2026-08) ─────
+//
+// 承認/否認ワークフロー自体が存在しないカテゴリ（電子版クレカ・併読・電子版
+// 無料会員）は tanka_id=null のまま電子版から同期される（電子版同期は
+// 「単価は承認画面で登録する」前提のため、このカテゴリだけ承認が発生せず
+// 永久に単価が付かなくなってしまう）。isTankaRegistrationPending 中だけ表示
+// する専用ボタン — 選択した単価のみを確定する。denshi_shonin_status は
+// 変更しない・電子版へは push しない（registerTankaDokusya は approveDokusya
+// と別エンドポイント）。
+async function onRegisterTankaClick(): Promise<void> {
+  if (dokusyaId.value === null) return;
+  if (formState.tanka_id == null) {
+    fieldErrors.value = { tanka_id: REQUIRED_MSG };
+    focusFirstError(FIELD_ORDER, fieldErrors.value);
+    return;
+  }
+  if (submitting.value) return;
+  submitting.value = true;
+  try {
+    await registerTankaDokusya(dokusyaId.value, { tanka_id: formState.tanka_id });
+    notify.created();
+    await router.push({ name: 'DokusyaList' });
+  } catch (err) {
+    handleServerError(err);
+  } finally {
+    submitting.value = false;
+  }
 }
 
 // ─── 否認 (機能定義 §4.x) ────────────────────────────────────────────
@@ -2645,6 +2756,8 @@ defineExpose({
                 :options="filteredKanriShitenOptions.map((k) => ({ value: k.kanri_shiten_id, label: k.kanri_shiten_name }))"
                 placeholder="選択してください"
                 allow-clear
+                show-search
+                option-filter-prop="label"
                 :disabled="isEdit || isShitenPinned"
               />
             </a-form-item>
@@ -2663,6 +2776,8 @@ defineExpose({
                 :disabled="formState.kanri_shiten_id == null || isShitenPinned || readOnlyForm"
                 :placeholder="formState.kanri_shiten_id == null ? '管理支店を先に選択してください' : '選択してください'"
                 allow-clear
+                show-search
+                option-filter-prop="label"
               />
             </a-form-item>
 
@@ -2797,8 +2912,9 @@ defineExpose({
               <!-- ラベル = 単価名 + 半角スペース + 金額（¥表記・顧客要件）。金額は
                    BE がログイン中 JA の税区分 (zei_kubun=1→税込 / =2→税抜) で解決
                    した `kingaku` を用いる。 -->
-              <!-- 承認待ち(電子版)は単価のみ編集可 → formLocked（承認待ちを含まない）を
-                   用い、他項目がロックされる中でも単価だけ操作可能にする。 -->
+              <!-- 承認待ち(電子版)・単価初回登録待ち(不具合修正2026-08)はいずれも
+                   単価のみ編集可 → formLocked（両者を含まない）を用い、他項目が
+                   ロックされる中でも単価だけ操作可能にする。 -->
               <a-select
                 v-model:value="formState.tanka_id"
                 :options="tankaOptions.map((t) => ({ value: t.tanka_id, label: `${t.tanka_name} ${formatYen(t.kingaku)}` }))"
@@ -2890,7 +3006,7 @@ defineExpose({
             :help="fieldErrors.renrakusaki_1"
           >
             <template #label>
-              <span>連絡先1</span>
+              <span>TEL1</span>
               <span class="text-error ml-1">*</span>
             </template>
             <a-input v-model:value="formState.renrakusaki_1" :maxlength="15" />
@@ -2901,7 +3017,7 @@ defineExpose({
             :validate-status="fieldErrors.renrakusaki_2 ? 'error' : ''"
             :help="fieldErrors.renrakusaki_2"
           >
-            <template #label><span>連絡先2</span></template>
+            <template #label><span>TEL2</span></template>
             <a-input v-model:value="formState.renrakusaki_2" :maxlength="15" />
           </a-form-item>
         </div>
@@ -2998,7 +3114,7 @@ defineExpose({
         Layout 完全一致 `docs/design/ACSMS-SCR-011/index.html` §配達先情報:
           Row 1 (4 cols): 郵便番号 / 都道府県 / 市町村郡 / 丁目番地
           Row 2 (full):   マンション・アパート名
-          Row 3 (2 cols): 連絡先1 / 連絡先2
+          Row 3 (2 cols): TEL1 / TEL2
           Row 4 (2 cols, each is 2-col subgrid):
             ┌─ 配達先苗字漢字 + 配達先名前漢字 ─┐  ┌─ 配達先苗字かな + 配達先名前かな ─┐
 
@@ -3117,15 +3233,23 @@ defineExpose({
             />
           </a-form-item>
 
-          <!-- Row 3: 2-col 連絡先 -->
+          <!-- Row 3: 2-col TEL -->
           <div class="grid grid-cols-1 @lg:grid-cols-2 gap-4">
-            <a-form-item name="haitatsu_renrakusaki_1">
-              <template #label><span>連絡先1</span></template>
+            <a-form-item
+              name="haitatsu_renrakusaki_1"
+              :validate-status="fieldErrors.haitatsu_renrakusaki_1 ? 'error' : ''"
+              :help="fieldErrors.haitatsu_renrakusaki_1"
+            >
+              <template #label><span>TEL1</span></template>
               <a-input v-model:value="formState.haitatsu_renrakusaki_1" :maxlength="15" />
             </a-form-item>
 
-            <a-form-item name="haitatsu_renrakusaki_2">
-              <template #label><span>連絡先2</span></template>
+            <a-form-item
+              name="haitatsu_renrakusaki_2"
+              :validate-status="fieldErrors.haitatsu_renrakusaki_2 ? 'error' : ''"
+              :help="fieldErrors.haitatsu_renrakusaki_2"
+            >
+              <template #label><span>TEL2</span></template>
               <a-input v-model:value="formState.haitatsu_renrakusaki_2" :maxlength="15" />
             </a-form-item>
           </div>
@@ -3267,7 +3391,7 @@ defineExpose({
               :options="shiharaiHohoOptions"
               placeholder="選択してください"
               allow-clear
-              :disabled="formLocked"
+              :disabled="formLocked || isTankaRegistrationPending"
             />
           </a-form-item>
 
@@ -3304,13 +3428,17 @@ defineExpose({
               <span v-if="Number(formState.shiharai_hoho) === ShiharaiHoho.KOZA_HIKIOTOSHI" class="text-error ml-1">*</span>
             </template>
             <!-- 承認待ち(電子版)でも引落口座4項目は編集可（#56524）→ 承認待ちを
-                 含まない formLocked を用い、他項目がロックされる中でも操作可能にする。 -->
+                 含まない formLocked を用い、他項目がロックされる中でも操作可能にする。
+                 単価初回登録待ちでは単価以外編集不可なので isTankaRegistrationPending
+                 を OR してロックする。 -->
             <a-select
               v-model:value="formState.bank_shiten_id"
               :options="kinyuShitenOptions.map((s) => ({ value: s.shiten_id, label: s.shiten_name }))"
               placeholder="選択してください"
               allow-clear
-              :disabled="formLocked"
+              show-search
+              option-filter-prop="label"
+              :disabled="formLocked || isTankaRegistrationPending"
             />
           </a-form-item>
 
@@ -3341,7 +3469,7 @@ defineExpose({
               :options="yokinShubetsuOptions.map((o) => ({ value: Number(o.value), label: o.label }))"
               placeholder="選択してください"
               allow-clear
-              :disabled="formLocked"
+              :disabled="formLocked || isTankaRegistrationPending"
             />
           </a-form-item>
 
@@ -3357,7 +3485,7 @@ defineExpose({
             <a-input
               v-model:value="formState.hikiotoshi_koza_no"
               :maxlength="10"
-              :disabled="formLocked"
+              :disabled="formLocked || isTankaRegistrationPending"
             />
           </a-form-item>
 
@@ -3373,7 +3501,7 @@ defineExpose({
             <a-input
               v-model:value="formState.hikiotoshi_koza_meigi"
               :maxlength="50"
-              :disabled="formLocked"
+              :disabled="formLocked || isTankaRegistrationPending"
             />
           </a-form-item>
         </div>
@@ -3750,11 +3878,11 @@ defineExpose({
           </p>
 
           <a-form-item
+            label="備考"
             name="biko"
             :validate-status="fieldErrors.biko ? 'error' : ''"
             :help="fieldErrors.biko"
           >
-            <template #label><span>備考</span></template>
             <a-textarea v-model:value="formState.biko" :rows="6" :maxlength="500" show-count />
           </a-form-item>
         </div>
@@ -3787,6 +3915,19 @@ defineExpose({
             :loading="submitting"
             :disabled="submitting"
             @click="onApproveClick"
+          >
+            承認・登録
+          </a-button>
+
+          <!-- 単価初回登録待ち（不具合修正2026-08）— 承認/否認ワークフロー自体が
+               存在しないカテゴリ（電子版クレカ・併読・電子版無料会員）の単価だけを
+               確定する。denshi_shonin_status は変えない・電子版へは push しない。 -->
+          <a-button
+            v-else-if="isTankaRegistrationPending && canDenshi"
+            type="primary"
+            :loading="submitting"
+            :disabled="submitting"
+            @click="onRegisterTankaClick"
           >
             承認・登録
           </a-button>

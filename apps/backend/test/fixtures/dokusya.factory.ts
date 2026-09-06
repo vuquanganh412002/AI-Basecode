@@ -695,6 +695,11 @@ export function buildImportRequiredColumns(): string[] {
   return [
     'tetsuzuki_shurui',
     'kanri_shiten_code',
+    // 購読者氏名・氏名かな4項目 — UI(SCR-011)と同じく常時必須（不具合修正2026-08）。
+    'shimei_sei',
+    'shimei_mei',
+    'shimei_kana_sei',
+    'shimei_kana_mei',
     'shiten_code',
     'dokusya_busu',
     'tanka_code',

@@ -278,16 +278,15 @@ function askDelete(row: AccountListItem): void {
       <label for="accounts-filter-3" class="flex items-center gap-2 text-sm font-medium text-text-main">
         <span class="whitespace-nowrap">JA名</span>
         <!-- BaseJaDropdown: サーバ側ページング（50/page）+ 無限スクロール。
-             アカウント画面は option ラベルから ja_code を隠し ILIKE を ja_name のみに
-             スコープ（label-format + search-field）。都道府県 とは独立 —
-             全JAを表示し、両方選択時は AND 絞り込み。 -->
+             既定（label-format/search-field 省略）で JAコード・JA名の両方を
+             表示・検索対象にする — ファイルアップロード画面「対象JA」と同じ
+             UX に統一（顧客要件2026-08）。都道府県 とは独立 — 全JAを表示し、
+             両方選択時は AND 絞り込み。 -->
         <div class="flex-1 min-w-0">
           <BaseJaDropdown
             id="accounts-filter-3"
             v-model:value="state.filters.ja_id"
             placeholder="すべて"
-            label-format="name"
-            search-field="name"
           />
         </div>
       </label>

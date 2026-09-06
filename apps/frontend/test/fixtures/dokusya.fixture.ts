@@ -729,6 +729,13 @@ export function buildCodesSeed(): Record<
       { value: 3, label: '一般', label_short: '一般' },
       { value: 4, label: '締め切り時間', label_short: '締切' },
     ],
+    DOKUSYASO_BUNRUI: [
+      { value: 0, label: '農業者', label_short: '農業者' },
+      { value: 1, label: 'JAグループ役職員', label_short: 'JA役職員' },
+      { value: 2, label: '企業・団体', label_short: '企業・団体' },
+      { value: 3, label: '学生', label_short: '学生' },
+      { value: 999, label: 'その他', label_short: 'その他' },
+    ],
   };
 }
 

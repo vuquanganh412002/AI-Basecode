@@ -9,6 +9,7 @@ import {
 } from '@/common/constants/dokusya-bunrui.constant';
 import { GENDER_MALE, GENDER_FEMALE } from '@/common/constants/gender.constant';
 import { MAIL_MAGAZINE_FLG_ON } from '@/common/constants/mail-magazine-flg.constant';
+import { normalizeDbDate, nextMonthFirstIsoJst } from '@/common/utils/datetime';
 import type { Dokusya } from '@/database/entities/dokusya.entity';
 
 /**
@@ -60,31 +61,6 @@ function clamp(v: string | null | undefined, max: number): string {
   return (v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
 }
 
-/**
- * `t_dokusya.biko`（複数行）→ 電子版 remarks1〜5（顧客要件 2026-08）。
- *   1行目 → remarks1 ／ 2行目 → remarks2 ／ 3行目 → remarks3 ／ 4行目 → remarks4
- *   5行目以降 → remarks5（改行を保ったまとめ）
- *
- * pull 側 `dokusya-sync.mapper.ts#joinRemarks` が remarks1〜5 を `\n` で連結して
- * biko を作るので、その逆変換にあたる。5行目以降の改行を潰さないのはそのため —
- * 潰すと 電子版→cloud→電子版 と往復した時に行が失われる。
- *
- * `clamp` は使わない（あれは改行を空白へ畳むので、行の区切りが消えてこの分割の
- * 意味がなくなる）。各スロットは trim + 255文字で切り詰める。
- *
- * @returns 長さ5の配列（remarks1..remarks5 の順・値が無いスロットは空文字）
- */
-function splitBikoToRemarks(biko: string | null | undefined): string[] {
-  const lines = (biko ?? '').replace(/\r\n?/g, '\n').split('\n');
-  return [
-    lines[0] ?? '',
-    lines[1] ?? '',
-    lines[2] ?? '',
-    lines[3] ?? '',
-    lines.slice(4).join('\n'), // 5行目以降はまとめて remarks5
-  ].map((s) => s.trim().slice(0, MAX_TEXT_LEN));
-}
-
 /** カンマ区切りコード列を逆変換表でマッピングして再結合（未知値は捨てる）。 */
 function mapCsvCodes(raw: string | null | undefined, table: Record<string, string>): string {
   const s = (raw ?? '').trim();
@@ -110,6 +86,20 @@ function genderToSex(gender: number | null | undefined): string {
 }
 
 /**
+ * 電子版 payment_start（0:本日開始／1:翌月1日開始）。ACSMS-SCR-011 新規登録画面の
+ * 「今日から／翌月1日から」ラジオ（＝保存された dokusyaKaishiDate）をそのまま
+ * 反映する。以前は '0' 固定で送っていた不具合（2026-08）— 「翌月1日から」を
+ * 選んで登録しても電子版側は常に本日開始として処理していた。
+ *
+ * `collectDigitalNewKaishiDateViolation`（dokusya-shubetsu.rules.ts）が NEW 時点で
+ * kaishiDate を本日/翌月1日の2値以外は拒否済みなので、ここでは「翌月1日と一致するか」
+ * だけを見れば十分（一致しなければ本日開始）。
+ */
+function toPaymentStart(kaishiDate: string | null | undefined): string {
+  return normalizeDbDate(kaishiDate) === nextMonthFirstIsoJst() ? '1' : '0';
+}
+
+/**
  * profession（購読者層分類の逆変換）。create は必須項目だが、クラウド側が未分類
  * （空）の会員を電子版へ 0(農業者) と誤分類しないよう、空のときは 999(その他) を
  * 既定にする（「不明」に最も近い安全側の値・§8 で顧客に最終確認）。
@@ -117,6 +107,61 @@ function genderToSex(gender: number | null | undefined): string {
 function toProfession(bunrui: string | null | undefined): string {
   const mapped = mapCsvCodes(bunrui, BUNRUI_TO_PROFESSION);
   return mapped === '' ? '999' : mapped;
+}
+
+// ─── デバッグログ ────────────────────────────────────────────────────
+
+/**
+ * TODO(debug): push 直前の変換内容（cloud 側の元値 → 電子版へ送る全項目）を
+ * そのまま出力する一時ログ。「どの列が何に変換されて push されたか」を追う用。
+ * 個人情報（氏名・住所・連絡先・生年）を含むため、調査が終わったら
+ * この関数と各 to*Payload からの呼び出しを必ず削除すること。
+ */
+function debugLogPushProps(
+  action: string,
+  payload: Record<string, string>,
+  f?: Dokusya,
+): Record<string, string> {
+  console.log(
+    `[denshiban] push props(${action}):`,
+    JSON.stringify({
+      dokusya_id: f?.dokusyaId ?? null,
+      denshi_kaiin_id: f?.denshiKaiinId ?? null,
+      // 変換元（t_dokusya の実値・payload の各項目に対応する列だけ）
+      source: f
+        ? {
+            dokusya_shubetsu: f.dokusyaShubetsu,
+            tanka_id: f.tankaId,
+            kanri_shiten_id: f.kanriShitenId,
+            shimei_sei: f.shimeiSei,
+            shimei_mei: f.shimeiMei,
+            shimei_kana_sei: f.shimeiKanaSei,
+            shimei_kana_mei: f.shimeiKanaMei,
+            yubin_no: f.yubinNo,
+            todofuken_code: f.todofukenCode,
+            shikuchoson: f.shikuchoson,
+            chome_banchi: f.chomeBanchi,
+            tatemono_mei: f.tatemonoMei,
+            renrakusaki1: f.renrakusaki1,
+            email: f.email,
+            honshi_kodoku_flg: f.honshiKodokuFlg,
+            mail_magazine_flg: f.mailMagazineFlg,
+            birth_year: f.birthYear,
+            gender: f.gender,
+            dokusyaso_bunrui: f.dokusyasoBunrui,
+            dokusyaso_bunrui_sonota: f.dokusyasoBunruiSonota,
+            nogyosya_bunrui: f.nogyosyaBunrui,
+            nogyosya_bunrui_sonota: f.nogyosyaBunruiSonota,
+            ja_yakushokuin_flg: f.jaYakushokuinFlg,
+            nogyo_kankei_flg: f.nogyoKankeiFlg,
+            dokusya_kaishi_date: f.dokusyaKaishiDate,
+          }
+        : null,
+      // 変換後（電子版 updateUserInfo へ送る全項目・jacd/timestamp は API 層で付与）
+      payload,
+    }),
+  );
+  return payload;
 }
 
 // ─── payload 構築 ────────────────────────────────────────────────────
@@ -143,12 +188,9 @@ function buildProfile(f: Dokusya): Record<string, string> {
   const building = clamp(f.tatemonoMei, MAX_TEXT_LEN);
   if (building) payload.building = building;
 
-  // biko の各行を remarks1〜5 へ割り当てる。空スロットはキーごと落とす
-  // （共通フロー「値が存在しないパラメータはキーを含めない」）。電子版の
-  // isPresent は空文字をキー無しと同一視するので、送っても落としても同義。
-  splitBikoToRemarks(f.biko).forEach((v, i) => {
-    if (v) payload[`remarks${i + 1}`] = v;
-  });
+  // biko は電子版 remarks1〜5 とはマッピングしない（cloud 専有列・顧客要件
+  // 2026-08-26）。pull 側 dokusya-sync.mapper.ts も同様に biko↔remarks1〜5 の
+  // 変換を行わない。
 
   if (f.birthYear != null && /^\d{4}$/.test(String(f.birthYear))) {
     payload.birthyear = String(f.birthYear);
@@ -194,17 +236,22 @@ function buildProfile(f: Dokusya): Record<string, string> {
 
 /**
  * create パラメータ。jacd_execute は新規会員の JA（＝管理支店コードのハイフン除去）。
- * payment_start は既定 '0'（本日開始）。
+ * payment_start は f.dokusyaKaishiDate（今日/翌月1日）から算出する
+ * （{@link toPaymentStart}・不具合修正2026-08）。
  */
 export function toCreatePayload(
   f: Dokusya,
   jacdExecute: string,
 ): Record<string, string> {
-  return {
-    ...buildProfile(f),
-    jacd_execute: jacdExecute,
-    payment_start: '0',
-  };
+  return debugLogPushProps(
+    'create',
+    {
+      ...buildProfile(f),
+      jacd_execute: jacdExecute,
+      payment_start: toPaymentStart(f.dokusyaKaishiDate),
+    },
+    f,
+  );
 }
 
 /** update パラメータ。id は電子版会員ID、notify_flg 既定 '0'（通知なし）。 */
@@ -213,35 +260,64 @@ export function toUpdatePayload(
   jacdExecute: string,
   denshiKaiinId: number,
 ): Record<string, string> {
-  return {
-    ...buildProfile(f),
-    jacd_execute: jacdExecute,
-    id: String(denshiKaiinId),
-    notify_flg: '0',
-  };
+  return debugLogPushProps(
+    'update',
+    {
+      ...buildProfile(f),
+      jacd_execute: jacdExecute,
+      id: String(denshiKaiinId),
+      notify_flg: '0',
+    },
+    f,
+  );
 }
 
-/** approve パラメータ（承認）。id + payment_start のみ。 */
+/**
+ * approve パラメータ（承認）。id + payment_start のみ。payment_start は
+ * create 時と同じ f.dokusyaKaishiDate（今日/翌月1日）から算出する — 承認時点で
+ * 固定値を送ると、電子版側が仮に承認時にも payment_start を反映する実装だった場合
+ * 「翌月1日から」で登録した会員が承認操作で本日開始に戻ってしまう
+ * （{@link toPaymentStart}・create と同じ不具合パターンを承認経路でも防止）。
+ */
 export function toApprovePayload(
+  f: Dokusya,
+  jacdExecute: string,
+  denshiKaiinId: number,
+): Record<string, string> {
+  return debugLogPushProps(
+    'approve',
+    approveParams(f, jacdExecute, denshiKaiinId),
+    f,
+  );
+}
+
+/** approve / unapprove 共通の項目（ログの action 名だけ呼び分けたいので分離）。 */
+function approveParams(
+  f: Dokusya,
   jacdExecute: string,
   denshiKaiinId: number,
 ): Record<string, string> {
   return {
     jacd_execute: jacdExecute,
     id: String(denshiKaiinId),
-    payment_start: '0',
+    payment_start: toPaymentStart(f.dokusyaKaishiDate),
   };
 }
 
 /**
  * unapprove パラメータ（非承認）。電子版仕様上、approve と同一シグネチャ
- * （id + payment_start）。payment_start は電子版側で検証のみされ永続化されない。
+ * （id + payment_start）。
  */
 export function toUnapprovePayload(
+  f: Dokusya,
   jacdExecute: string,
   denshiKaiinId: number,
 ): Record<string, string> {
-  return toApprovePayload(jacdExecute, denshiKaiinId);
+  return debugLogPushProps(
+    'unapprove',
+    approveParams(f, jacdExecute, denshiKaiinId),
+    f,
+  );
 }
 
 /**
@@ -255,11 +331,11 @@ export function toCancelPayload(
   denshiKaiinId: number,
   cancelYm: string,
 ): Record<string, string> {
-  return {
+  return debugLogPushProps('cancel', {
     jacd_execute: jacdExecute,
     id: String(denshiKaiinId),
     notify_flg: '0',
     cancel_ym: cancelYm,
-  };
+  });
 }
 

@@ -234,8 +234,8 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
     });
 
     it('should return only 営業中 rows by default (haiten_flg=false)', async () => {
-      // COVERS: customer 2026-05-26 — exact-match semantic. Default
-      // = haiten_flg=false (営業中のみ).
+      // COVERS: 顧客CR 2026-08-24 (revert of 2026-05-26 exact-match) —
+      // inclusive semantic. Default (omitted) = 廃店を除外.
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001', haitenFlg: false });
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H002', haitenFlg: true });
 
@@ -249,9 +249,9 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
       expect(res.body.data[0].haiten_flg).toBe(false);
     });
 
-    it('should return only 廃店 rows when haiten_flg=true is explicitly passed', async () => {
-      // COVERS: customer 2026-05-26 — exact-match. checked = 廃店のみ
-      // (NOT "include 廃店").
+    it('should return BOTH 営業中 and 廃店 rows when haiten_flg=true is explicitly passed', async () => {
+      // COVERS: 顧客CR 2026-08-24 — inclusive semantic. checked = 廃店を含む
+      // 全件表示（NOT 廃店のみに絞り込む）.
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001', haitenFlg: false });
       await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H002', haitenFlg: true });
 
@@ -262,8 +262,8 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
         .set('Cookie', cookie)
         .expect(200);
 
-      expect(res.body.meta.total).toBe(1);
-      expect(res.body.data[0].haiten_flg).toBe(true);
+      expect(res.body.meta.total).toBe(2);
+      expect(res.body.data.map((r: any) => r.haiten_flg).sort()).toEqual([false, true]);
     });
 
     it('should apply ILIKE filter when hanbaiten_name=山田 is passed', async () => {
@@ -492,6 +492,127 @@ describe('Hanbaiten — integration (SCR-018 over pg-mem)', () => {
     it('should return 401 when no session cookie is provided', async () => {
       const id = await insertHanbaiten();
       await http().delete(`/api/v1/hanbaiten/${id}`).expect(401);
+    });
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
+  // ACSMS-API-018-003 — GET /api/v1/hanbaiten/export（顧客CR 2026-08-24）
+  // ═════════════════════════════════════════════════════════════════════
+  describe('GET /api/v1/hanbaiten/export — Excel出力', () => {
+    /** supertest binary parser — captures Buffer chunks for XLSX download. */
+    function binaryParser(
+      res: any,
+      callback: (err: Error | null, body: Buffer) => void,
+    ) {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => callback(null, Buffer.concat(chunks)));
+    }
+
+    it('should return 200 with a non-empty XLSX body scoped to the caller JA (DataScope)', async () => {
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001' });
+      await insertHanbaiten({ jaId: 2, hanbaitenCode: 'H002' });
+
+      const cookie = await chuokaiCookie(1);
+      const res = await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      expect(res.headers['content-type']).toMatch(
+        /application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet/i,
+      );
+      expect((res.body as Buffer).length).toBeGreaterThan(0);
+    });
+
+    it('should set Content-Disposition with a 販売店一覧出力_ prefixed filename', async () => {
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001' });
+
+      const cookie = await chuokaiCookie(1);
+      const res = await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      const cd = String(res.headers['content-disposition'] ?? '');
+      expect(cd).toMatch(/attachment/i);
+      expect(cd).toMatch(/(販売店一覧出力_\d{8}_\d{6}\.xlsx|filename\*=UTF-8''.+\.xlsx)/);
+    });
+
+    it('should exclude 廃店 rows by default and include them when haiten_flg=true', async () => {
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001', haitenFlg: false });
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H002', haitenFlg: true });
+
+      const cookie = await chuokaiCookie(1);
+      // Default (no haiten_flg) — the 廃店 row alone makes the filtered set
+      // empty (1 active + 1 closed, but only the active one should count).
+      const okRes = await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+      expect((okRes.body as Buffer).length).toBeGreaterThan(0);
+
+      // haiten_flg=true — no filter, both rows counted, still succeeds.
+      const includedRes = await http()
+        .get('/api/v1/hanbaiten/export?haiten_flg=true')
+        .set('Cookie', cookie)
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+      expect((includedRes.body as Buffer).length).toBeGreaterThan(0);
+    });
+
+    it('should return 404 EXPORT_NO_DATA when the filtered result set is empty', async () => {
+      // No rows seeded for this JA at all.
+      const cookie = await chuokaiCookie(1);
+      const res = await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .expect(404);
+      expect(res.body.error_code).toBe('EXPORT_NO_DATA');
+    });
+
+    it('should write a t_log row with operation=EXPORT_EXCEL when export succeeds', async () => {
+      await insertHanbaiten({ jaId: 1, hanbaitenCode: 'H001' });
+
+      const cookie = await chuokaiCookie(1);
+      await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .buffer(true)
+        .parse(binaryParser)
+        .expect(200);
+
+      const logs = await ctx.dataSource.query(
+        `SELECT operation, result_status FROM t_log
+           WHERE target_table = 'm_hanbaiten' AND operation = 'EXPORT_EXCEL'`,
+      );
+      expect(logs).toHaveLength(1);
+      expect(logs[0].result_status).toBe(1);
+    });
+
+    it('should return 401 when no session cookie is provided', async () => {
+      await http().get('/api/v1/hanbaiten/export').expect(401);
+    });
+
+    it('should return 403 FORBIDDEN when caller lacks hanbaiten.view / hanbaiten.daiko_input', async () => {
+      const sid = await ctx.seedSession({
+        role_code: 'CHUOKAI',
+        ja_id: 1,
+        permissions: [], // no hanbaiten.view
+      });
+      const cookie = await buildSessionCookie(ctx.app, sid);
+      const res = await http()
+        .get('/api/v1/hanbaiten/export')
+        .set('Cookie', cookie)
+        .expect(403);
+      expect(res.body.error_code).toBe('FORBIDDEN');
     });
   });
 });

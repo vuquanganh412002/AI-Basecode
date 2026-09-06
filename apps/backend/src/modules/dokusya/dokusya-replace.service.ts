@@ -19,6 +19,11 @@ import {
 } from '@/common/utils/data-scope';
 import { paginate, clampPerPage, type PaginatedResponse } from '@/common/utils/paginate';
 import { AuditOperation, DokusyaShubetsu, TetsuzukiShurui } from '@/common/enums';
+import { ScreenName } from '@/common/constants/screen-name.constant';
+import {
+  HANBAITEN_DUMMY_CODE,
+  HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE,
+} from '@/common/constants/hanbaiten-dummy.constant';
 import { AuditLogService } from '@/modules/audit-log/audit-log.service';
 import type { SessionPayload } from '@/modules/auth/session.service';
 
@@ -40,7 +45,6 @@ import {
 import { isBoth, isDigitalCreditCard, SHUBETSU_MSG } from './dokusya-shubetsu.rules';
 
 /** ACSMS-SCR-015 監査ラベル。core DokusyaService と同一値だが自己完結のため複製。 */
-const SCREEN_NAME_SCR015 = '統廃合販売店読者移行画面 (ACSMS-SCR-015)';
 
 /** ACSMS-SCR-015 監査テーブル名（t_log.target_table）。core と同一値だが複製保持。 */
 const TABLE_NAME = 't_dokusya';
@@ -110,6 +114,13 @@ export class DokusyaReplaceService {
       query.dokusya_shubetsu,
       query.joho_henko_tekiyo_date,
     );
+
+    // ダミー販売店(9999999999)は紙版限定の本画面では配達販売店にも置換先にも
+    // なり得ない（詳細は assertNoDummyHanbaiten）。
+    await this.assertNoDummyHanbaiten([
+      { field: 'hanbaiten_id', id: query.hanbaiten_id },
+      { field: 'new_hanbaiten_id', id: query.new_hanbaiten_id },
+    ]);
 
     const page = Math.max(1, Number(query.page ?? 1));
     const perPage = clampPerPage(query.per_page);
@@ -328,7 +339,7 @@ export class DokusyaReplaceService {
     // §4.4 置換先 hanbaiten の存在 + スコープ検証。
     const targetRows: Array<Record<string, unknown>> =
       await this.dataSource.query(
-        `SELECT hanbaiten_id, ja_id FROM m_hanbaiten
+        `SELECT hanbaiten_id, ja_id, hanbaiten_code FROM m_hanbaiten
           WHERE hanbaiten_id = $1 AND deleted_at IS NULL`,
         [dto.new_hanbaiten_id],
       );
@@ -341,11 +352,22 @@ export class DokusyaReplaceService {
       targetRows[0].ja_id == null ? null : Number(targetRows[0].ja_id),
       session,
     );
+    // ダミー販売店(9999999999)は紙版限定の本画面では置換先になり得ない
+    // （詳細は assertNoDummyHanbaiten）。既存の存在確認クエリへ列を1つ足す
+    // だけで済むため、ここは専用クエリを重ねず targetRows を直接見る。
+    if (targetRows[0].hanbaiten_code === HANBAITEN_DUMMY_CODE) {
+      throw new ValidationException([
+        {
+          field: 'new_hanbaiten_id',
+          message: HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE,
+        },
+      ]);
+    }
 
     const auditCtx = buildAuditCtx(
       session,
       req,
-      SCREEN_NAME_SCR015,
+      ScreenName.ACSMS_SCR_015,
       TABLE_NAME,
       null,
     );
@@ -461,6 +483,43 @@ export class DokusyaReplaceService {
     }
     if (ineligible.length > 0) {
       throw new IneligibleDokusyaException(ineligible);
+    }
+  }
+
+  /**
+   * ダミー販売店（電子版単独の受け皿、`HANBAITEN_DUMMY_CODE`）が本画面の
+   * 配達販売店/置換先配達販売店として選択されていないか検証する
+   * （不具合修正2026-08）。本画面は`assertTekiyoDateForShubetsu`により常に
+   * 紙版限定（電子版は検索・置換とも拒否済み）なので、ダミーが選ばれる余地は
+   * 本来無いはずだが、ダミーはID自体は普通の販売店として存在する（JAごとに
+   * 1件、m_hanbaiten上の実レコード）ため、ドロップダウンの選択肢を絞る
+   * だけでは足りず、送信されたIDが実際にダミーかをサーバ側で確認する必要が
+   * ある。FE 側は既に dummy=exclude で候補から外している
+   * （BaseHanbaitenDropdown）が、API を直接叩けば回避できるため二重防御。
+   */
+  private async assertNoDummyHanbaiten(
+    checks: ReadonlyArray<{ field: string; id: number | null | undefined }>,
+  ): Promise<void> {
+    const targets = checks.filter(
+      (c): c is { field: string; id: number } => c.id != null,
+    );
+    if (targets.length === 0) return;
+
+    const rows: Array<{ hanbaiten_id: number; hanbaiten_code: string }> =
+      await this.dataSource.query(
+        `SELECT hanbaiten_id, hanbaiten_code FROM m_hanbaiten WHERE hanbaiten_id = ANY($1)`,
+        [targets.map((t) => t.id)],
+      );
+    const dummyIds = new Set(
+      rows
+        .filter((r) => r.hanbaiten_code === HANBAITEN_DUMMY_CODE)
+        .map((r) => Number(r.hanbaiten_id)),
+    );
+    const hit = targets.find((t) => dummyIds.has(Number(t.id)));
+    if (hit) {
+      throw new ValidationException([
+        { field: hit.field, message: HANBAITEN_DUMMY_NOT_ALLOWED_FOR_PAPER_MESSAGE },
+      ]);
     }
   }
 

@@ -13,6 +13,7 @@ import type { SessionPayload } from '@/modules/auth/session.service';
 import { futureDate } from '@test/fixtures/dokusya.factory';
 import { SHUBETSU_MSG } from './dokusya-shubetsu.rules';
 import { todayIsoJst, nextMonthFirstIsoJst, addDaysIso } from '@/common/utils/datetime';
+import { HANBAITEN_DUMMY_CODE } from '@/common/constants/hanbaiten-dummy.constant';
 
 type ImportRowError = { row: number; field: string; message: string };
 
@@ -37,6 +38,10 @@ function buildLookups(): Record<string, unknown> {
     hanbaitenClosedCodeSet: new Set(),
     kanriShitenCodeSet: new Set(),
     shitenCodeSet: new Set(),
+    kanriShitenFlagsByCode: new Map(),
+    shitenKanriShitenCodeByCode: new Map(),
+    ownKanriShitenCode: null,
+    ownShitenCode: null,
     existingDigitalEmailToIds: new Map(),
     sameDateActiveDokusyaIds: new Set(),
     hasCode: (category: string, value: number | string) =>
@@ -213,6 +218,10 @@ describe('DokusyaImportValidator — 電子版の部数/販売店コード固定
         dokusya_shubetsu: 2, // 電子版
         selected_columns: [
           'kanri_shiten_code',
+          'shimei_sei',
+          'shimei_mei',
+          'shimei_kana_sei',
+          'shimei_kana_mei',
           'tanka_code',
           'yubin_no',
           'todofuken_code',
@@ -679,6 +688,104 @@ describe('DokusyaImportValidator — 廃店の販売店・失効の単価を取�
   });
 });
 
+// バグ報告2026-08: 紙版(dokusya_shubetsu=1)のExcel取込で、電子版単独用のダミー
+// 販売店(hanbaiten_code=9999999999)を選択できてしまっていた。ダミーは「配達先の
+// 販売店が無い」を意味する（hanbaiten-dummy.constant.ts）ため、紙を配る読者に
+// 付くと増減連絡票・名簿の配達担当が誤る。ACSMS-SCR-011の登録/編集画面は
+// BaseHanbaitenSelectで既にダミーを候補から除外しているが、Excel取込は自由入力
+// のためこのガードが無かった。
+describe('DokusyaImportValidator — 紙版の取込でダミー販売店(9999999999)を選択できないようにする (バグ報告2026-08)', () => {
+  let validator: DokusyaImportValidator;
+
+  beforeEach(() => {
+    validator = new DokusyaImportValidator();
+  });
+
+  function buildNewRow(overrides: Partial<ImportDokusyaRowDto> = {}) {
+    return {
+      kanri_shiten_code: 'KS001',
+      dokusya_busu: 1,
+      tanka_code: 'T001',
+      yubin_no: '1000001',
+      todofuken_code: '13',
+      shikuchoson: '千代田区',
+      chome_banchi: '1-1',
+      renrakusaki_1: '0312345678',
+      hanbaiten_code: HANBAITEN_DUMMY_CODE,
+      shiharai_hoho: 1,
+      dokusya_kaishi_date: futureDate(2),
+      ...overrides,
+    } as unknown as ImportDokusyaRowDto;
+  }
+
+  it('should push an IMPORT_VALIDATION_ERROR when a 紙版(1) row selects the dummy hanbaiten_code', () => {
+    const lookups = buildLookups() as any;
+    (lookups.hanbaitenCodeSet as Set<string>).add(HANBAITEN_DUMMY_CODE);
+    (lookups.tankaCodeSet as Set<string>).add('T001');
+    (lookups.kanriShitenCodeSet as Set<string>).add('KS001');
+
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 1, // 紙版
+      selected_columns: [],
+      rows: [buildNewRow()],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'hanbaiten_code',
+      message: `販売店コード「${HANBAITEN_DUMMY_CODE}」は電子版専用のダミー販売店のため、紙版では選択できません。`,
+    });
+  });
+
+  it('should NOT push an error when a 電子版(2) row selects the dummy hanbaiten_code (期待どおりの強制割当)', () => {
+    const lookups = buildLookups() as any;
+    (lookups.hanbaitenCodeSet as Set<string>).add(HANBAITEN_DUMMY_CODE);
+    (lookups.hanbaitenIdByCode as Map<string, number>).set(HANBAITEN_DUMMY_CODE, 99);
+    (lookups.tankaCodeSet as Set<string>).add('T001');
+    (lookups.kanriShitenCodeSet as Set<string>).add('KS001');
+
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 2, // 電子版
+      selected_columns: [],
+      rows: [
+        buildNewRow({
+          dokusya_busu: 1,
+          shiharai_hoho: 1,
+        }),
+      ],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(errors.some((e) => e.field === 'hanbaiten_code')).toBe(false);
+  });
+
+  it('should NOT push an error when a 紙版(1) row selects a normal (non-dummy) hanbaiten_code', () => {
+    const lookups = buildLookups() as any;
+    (lookups.hanbaitenCodeSet as Set<string>).add('H001');
+    (lookups.tankaCodeSet as Set<string>).add('T001');
+    (lookups.kanriShitenCodeSet as Set<string>).add('KS001');
+
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 1,
+      selected_columns: [],
+      rows: [buildNewRow({ hanbaiten_code: 'H001' })],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(errors.some((e) => e.field === 'hanbaiten_code')).toBe(false);
+  });
+});
+
 // 組合員コードは重複可（DB に UNIQUE 制約なし・screen-design.md「更新モードで
 // IDが空のときの代替キー」）。dokusya_id 無しで kumiaiin_code だけを頼りに
 // UPDATE/一括中止すると、同一コードの読者が複数いた場合 LIMIT 1 で誤った
@@ -718,7 +825,11 @@ describe('DokusyaImportValidator — 組合員コード重複時はID指定を�
     } as unknown as ImportDokusyaRowDto;
   }
 
-  it('should reject a normal UPDATE row with an ambiguous kumiaiin_code (no dokusya_id)', () => {
+  it('should reject a normal UPDATE row without dokusya_id as "ID required" — NOT the ambiguous-kumiaiin-code message (不具合修正2026-08: 通常更新はkumiaiin_codeへ一切フォールバックしない)', () => {
+    // ユーザー要望2026-08: 通常更新（joho_henko_tekiyo_date 指定）は
+    // dokusya_id 必須・kumiaiin_code フォールバック廃止。ambiguous かどうかを
+    // 問う以前に「IDが無い」ことそのものが通常更新では即エラーになる
+    // （一括中止のみ isAmbiguousKumiaiinKey 経路が生きる — 次のテスト参照）。
     const lookups = buildAmbiguousLookups();
     const dto = {
       import_mode: 'UPDATE',
@@ -738,9 +849,12 @@ describe('DokusyaImportValidator — 組合員コード重複時はID指定を�
 
     expect(errors).toContainEqual({
       row: 1,
-      field: 'kumiaiin_code',
-      message: '組合員コードが重複しているため、IDを指定してください。',
+      field: 'dokusya_id',
+      message: 'IDは必須です。',
     });
+    expect(
+      errors.some((e) => e.field === 'kumiaiin_code'),
+    ).toBe(false);
     expect(updatedCount).toBe(0);
   });
 
@@ -819,5 +933,525 @@ describe('DokusyaImportValidator — 組合員コード重複時はID指定を�
     expect(
       errors.some((e) => e.field === 'kumiaiin_code' && e.message.includes('重複')),
     ).toBe(false);
+  });
+});
+
+// 不具合修正 2026-08: UI(SCR-011 DokusyaFormView)は購読者氏名・氏名かな4項目を
+// 常時必須にしているが、Excel取込のNEWモードはこの4項目を空欄のまま取込めて
+// いた（FE の REQUIRED_COLUMNS_NEW は既にこの4項目を含み「BE の
+// IMPORT_NEW_REQUIRED_COLUMNS と対で保つこと」と明記していたが、BE側だけ
+// 追従できていなかった）。加えて配達先氏名4項目は UI の
+// `haitatsuRequired = !haitatsu_same_flg && !isDigitalOnly` と同じ条件で
+// 必須にする。
+describe('DokusyaImportValidator — 購読者氏名・配達先氏名の必須チェックをUIと揃える (バグ報告2026-08)', () => {
+  let validator: DokusyaImportValidator;
+
+  beforeEach(() => {
+    validator = new DokusyaImportValidator();
+  });
+
+  function buildFullNewRow(overrides: Partial<ImportDokusyaRowDto> = {}) {
+    return {
+      kanri_shiten_code: 'KS001',
+      shimei_sei: '山田',
+      shimei_mei: '太郎',
+      shimei_kana_sei: 'やまだ',
+      shimei_kana_mei: 'たろう',
+      dokusya_busu: 1,
+      tanka_code: 'T001',
+      yubin_no: '1000001',
+      todofuken_code: '13',
+      shikuchoson: '千代田区',
+      chome_banchi: '1-1',
+      renrakusaki_1: '0312345678',
+      hanbaiten_code: 'H001',
+      shiharai_hoho: 1,
+      dokusya_kaishi_date: futureDate(2),
+      ...overrides,
+    } as unknown as ImportDokusyaRowDto;
+  }
+
+  function buildFullLookups() {
+    const lookups = buildLookups() as any;
+    (lookups.hanbaitenCodeSet as Set<string>).add('H001');
+    (lookups.tankaCodeSet as Set<string>).add('T001');
+    (lookups.kanriShitenCodeSet as Set<string>).add('KS001');
+    return lookups;
+  }
+
+  it.each([
+    ['shimei_sei', '購読者氏名_氏'],
+    ['shimei_mei', '購読者氏名_名'],
+    ['shimei_kana_sei', '購読者かな_氏'],
+    ['shimei_kana_mei', '購読者かな_名'],
+  ])('should push an IMPORT_VALIDATION_ERROR when NEW row leaves %s blank', (field, label) => {
+    const lookups = buildFullLookups();
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 1,
+      selected_columns: [],
+      rows: [buildFullNewRow({ [field]: '' })],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field,
+      message: `新規登録の場合、${label}は必須です。`,
+    });
+  });
+
+  it('should NOT push an error when all 4 shimei fields are filled (regression)', () => {
+    const lookups = buildFullLookups();
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 1,
+      selected_columns: [],
+      rows: [buildFullNewRow()],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(
+      errors.some((e) =>
+        ['shimei_sei', 'shimei_mei', 'shimei_kana_sei', 'shimei_kana_mei'].includes(e.field),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ['haitatsu_shimei_sei', '配達先苗字（漢字）'],
+    ['haitatsu_shimei_mei', '配達先名前（漢字）'],
+    ['haitatsu_shimei_kana_sei', '配達先苗字（かな）'],
+    ['haitatsu_shimei_kana_mei', '配達先名前（かな）'],
+  ])(
+    'should push an IMPORT_VALIDATION_ERROR for 紙版 when 配達先≠購読者情報 and %s is blank',
+    (field, label) => {
+      const lookups = buildFullLookups();
+      const dto = {
+        import_mode: 'NEW',
+        dokusya_shubetsu: 1, // 紙版
+        selected_columns: [],
+        rows: [
+          buildFullNewRow({
+            haitatsu_same_flg: false,
+            haitatsu_shimei_sei: '配達',
+            haitatsu_shimei_mei: '花子',
+            haitatsu_shimei_kana_sei: 'はいたつ',
+            haitatsu_shimei_kana_mei: 'はなこ',
+            [field]: '',
+          }),
+        ],
+      } as unknown as ImportDokusyaDto;
+
+      const errors: ImportRowError[] = [];
+      validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+      expect(errors).toContainEqual({
+        row: 1,
+        field,
+        message: `新規登録の場合、${label}は必須です。`,
+      });
+    },
+  );
+
+  it('should NOT require 配達先氏名 when haitatsu_same_flg is left true (配達先＝購読者情報)', () => {
+    const lookups = buildFullLookups();
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 1,
+      selected_columns: [],
+      rows: [buildFullNewRow()], // 配達先列はすべて未指定 → same_flg=true 推論
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(
+      errors.some((e) =>
+        [
+          'haitatsu_shimei_sei',
+          'haitatsu_shimei_mei',
+          'haitatsu_shimei_kana_sei',
+          'haitatsu_shimei_kana_mei',
+        ].includes(e.field),
+      ),
+    ).toBe(false);
+  });
+
+  it('should NOT require 配達先氏名 for 電子版 even when 配達先≠購読者情報 (electronic skips the whole cluster)', () => {
+    const lookups = buildFullLookups();
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: 2, // 電子版
+      selected_columns: [],
+      rows: [
+        buildFullNewRow({
+          haitatsu_same_flg: false,
+        }),
+      ],
+    } as unknown as ImportDokusyaDto;
+
+    const errors: ImportRowError[] = [];
+    validator.validateImportRows(dto, lookups, NICHINO_ADMIN_SESSION, errors);
+
+    expect(
+      errors.some((e) =>
+        [
+          'haitatsu_shimei_sei',
+          'haitatsu_shimei_mei',
+          'haitatsu_shimei_kana_sei',
+          'haitatsu_shimei_kana_mei',
+        ].includes(e.field),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe('DokusyaImportValidator — biko の行別文字数チェックは行わない (顧客要件2026-08-26)', () => {
+  // biko は電子版 remarks1〜5 とマッピングしなくなったため、電子版/併読向けの
+  // 行別文字数チェック（旧 collectBikoRemarkViolation）は撤廃し、紙版と同じ
+  // 500文字以内の DTO レベルチェックのみが適用される（紙版と統一）。
+  let validator: DokusyaImportValidator;
+  let lookups: ReturnType<typeof buildLookups>;
+  let errors: ImportRowError[];
+
+  beforeEach(() => {
+    validator = new DokusyaImportValidator();
+    lookups = buildLookups();
+    errors = [];
+    (lookups.kanriShitenCodeSet as Set<string>).add('KS001');
+    (lookups.hanbaitenCodeSet as Set<string>).add('H001');
+    (lookups.tankaCodeSet as Set<string>).add('T001');
+  });
+
+  function runRow(shubetsu: number, biko: string): void {
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: shubetsu,
+      selected_columns: [],
+      rows: [
+        {
+          dokusya_shubetsu: shubetsu,
+          kanri_shiten_code: 'KS001',
+          dokusya_busu: 1,
+          tanka_code: 'T001',
+          yubin_no: '1000001',
+          todofuken_code: '13',
+          shikuchoson: '千代田区',
+          chome_banchi: '1-1',
+          renrakusaki_1: '03-1234-5678',
+          hanbaiten_code: 'H001',
+          shiharai_hoho: 1,
+          email: 'a@example.com',
+          dokusyaso_bunrui: '0',
+          dokusya_kaishi_date: todayIsoJst(),
+          biko,
+        } as unknown as ImportDokusyaRowDto,
+      ],
+    } as unknown as ImportDokusyaDto;
+
+    validator.validateImportRows(dto, lookups as never, NICHINO_ADMIN_SESSION, errors);
+  }
+
+  it('電子版・1行目が31文字でもエラーなし（行別チェック撤廃・紙版と統一）', () => {
+    runRow(2, 'あ'.repeat(31));
+    expect(errors.filter((e) => e.field === 'biko')).toHaveLength(0);
+  });
+
+  it('電子版・5行目以降相当が119文字でもエラーなし', () => {
+    runRow(2, `1\n2\n3\n4\n${'あ'.repeat(119)}`);
+    expect(errors.filter((e) => e.field === 'biko')).toHaveLength(0);
+  });
+
+  it('紙版・1行目が31文字でもエラーなし（従来通り対象外）', () => {
+    runRow(1, 'あ'.repeat(31));
+    expect(errors.filter((e) => e.field === 'biko')).toHaveLength(0);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// [layer4-scope-guard] 不具合修正2026-08 — 管理支店(kanri_shiten)/支店(shiten)
+// 列のスコープ検証。management_import_scope 要件（顧客要件2026-08）の
+// メッセージ文言を1文字単位で確定させる。
+// ═══════════════════════════════════════════════════════════════════════
+describe('DokusyaImportValidator — 管理支店/支店 スコープ検証 (不具合修正2026-08)', () => {
+  let validator: DokusyaImportValidator;
+  let errors: ImportRowError[];
+
+  function buildScopedSession(
+    overrides: Partial<SessionPayload> = {},
+  ): SessionPayload {
+    return {
+      account_id: 17,
+      login_id: 'kanrishiten01',
+      role_id: 5,
+      role_code: 'JA_KANRI_SHITEN',
+      ja_id: 1,
+      kanri_shiten_id: null,
+      shiten_id: null,
+      todofuken_code: null,
+      ...overrides,
+    } as unknown as SessionPayload;
+  }
+
+  /** Minimal fully-valid NEW row (mirrors the biko describe block's runRow template). */
+  function buildRow(overrides: Record<string, unknown> = {}): ImportDokusyaRowDto {
+    return {
+      dokusya_shubetsu: 1,
+      kanri_shiten_code: 'KS001',
+      dokusya_busu: 1,
+      tanka_code: 'T001',
+      yubin_no: '1000001',
+      todofuken_code: '13',
+      shikuchoson: '千代田区',
+      chome_banchi: '1-1',
+      renrakusaki_1: '03-1234-5678',
+      hanbaiten_code: 'H001',
+      shiharai_hoho: 1,
+      email: 'a@example.com',
+      dokusyaso_bunrui: '0',
+      dokusya_kaishi_date: todayIsoJst(),
+      biko: '',
+      ...overrides,
+    } as unknown as ImportDokusyaRowDto;
+  }
+
+  function run(
+    row: ImportDokusyaRowDto,
+    lookups: ReturnType<typeof buildLookups>,
+    session: SessionPayload,
+  ): void {
+    const dto = {
+      import_mode: 'NEW',
+      dokusya_shubetsu: row.dokusya_shubetsu,
+      selected_columns: [],
+      rows: [row],
+    } as unknown as ImportDokusyaDto;
+    validator.validateImportRows(dto, lookups as never, session, errors);
+  }
+
+  beforeEach(() => {
+    validator = new DokusyaImportValidator();
+    errors = [];
+  });
+
+  it('1. 管理支店が紙版を取り扱っていない場合はエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: false, denshiFlg: true });
+
+    run(buildRow({ dokusya_shubetsu: 1 }), lookups, NICHINO_ADMIN_SESSION);
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'kanri_shiten_code',
+      message: '管理支店「KS001」は紙版を取り扱っていないため指定できません。',
+    });
+  });
+
+  it('1. 管理支店が電子版を取り扱っていない場合はエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: false });
+
+    run(buildRow({ dokusya_shubetsu: 2 }), lookups, NICHINO_ADMIN_SESSION);
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'kanri_shiten_code',
+      message: '管理支店「KS001」は電子版を取り扱っていないため指定できません。',
+    });
+  });
+
+  it('1. 管理支店の取扱いフラグが揃っていればエラーなし', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+
+    run(buildRow({ dokusya_shubetsu: 1 }), lookups, NICHINO_ADMIN_SESSION);
+
+    expect(errors.filter((e) => e.field === 'kanri_shiten_code')).toHaveLength(0);
+  });
+
+  it('2. スコープ制約の無いアカウントが無関係な管理支店/支店の組合せを指定するとエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.kanriShitenCodeSet.add('KS002');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.shitenCodeSet.add('SH002');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.kanriShitenFlagsByCode.set('KS002', { paperFlg: true, denshiFlg: true });
+    // SH002 は実際には KS002 配下の支店だが、行では KS001 と組み合わせて指定。
+    lookups.shitenKanriShitenCodeByCode.set('SH002', 'KS002');
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH002' }),
+      lookups,
+      NICHINO_ADMIN_SESSION,
+    );
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'shiten_code',
+      message: '支店「SH002」は管理支店「KS001」配下の支店ではありません。',
+    });
+  });
+
+  it('2. スコープ制約の無いアカウントが正しい親子関係の組合せを指定すればエラーなし', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.shitenCodeSet.add('SH001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.shitenKanriShitenCodeByCode.set('SH001', 'KS001');
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH001' }),
+      lookups,
+      NICHINO_ADMIN_SESSION,
+    );
+
+    expect(errors.filter((e) => e.field === 'shiten_code')).toHaveLength(0);
+  });
+
+  it('2. スコープ制約のあるアカウントは行内親子関係チェックと重複報告しない（validateAccountKanriShitenScopeに一任）', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.shitenCodeSet.add('SH002');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.shitenKanriShitenCodeByCode.set('SH002', 'KS999');
+    lookups.ownKanriShitenCode = 'KS001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH002' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101 }),
+    );
+
+    // validateAccountKanriShitenScope が同じ組合せを1件だけ報告する — 二重報告なし。
+    expect(errors.filter((e) => e.field === 'shiten_code')).toHaveLength(1);
+  });
+
+  it('3. shiten_id=null の管理支店固定アカウントが自管理支店以外を指定するとエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.kanriShitenCodeSet.add('KS002');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.kanriShitenFlagsByCode.set('KS002', { paperFlg: true, denshiFlg: true });
+    lookups.ownKanriShitenCode = 'KS001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS002' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101 }),
+    );
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'kanri_shiten_code',
+      message: '管理支店は自管理支店「KS001」のみ指定できます。',
+    });
+  });
+
+  it('3. shiten_id=null の管理支店固定アカウント — 自管理支店配下でない支店を指定するとエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.shitenCodeSet.add('SH999');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.shitenKanriShitenCodeByCode.set('SH999', 'KS999'); // 別の管理支店配下
+    lookups.ownKanriShitenCode = 'KS001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH999' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101 }),
+    );
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'shiten_code',
+      message: '支店「SH999」は管理支店「KS001」配下の支店ではありません。',
+    });
+  });
+
+  it('3. shiten_id=null の管理支店固定アカウント — 自管理支店＋支店未指定はエラーなし', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.ownKanriShitenCode = 'KS001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101 }),
+    );
+
+    expect(
+      errors.filter((e) => e.field === 'kanri_shiten_code' || e.field === 'shiten_code'),
+    ).toHaveLength(0);
+  });
+
+  it('4. 管理支店＋支店の両方に固定されたアカウントが別の組合せを指定するとエラー', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.shitenCodeSet.add('SH002');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.ownKanriShitenCode = 'KS001';
+    lookups.ownShitenCode = 'SH001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH002' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101, shiten_id: 1001 }),
+    );
+
+    expect(errors).toContainEqual({
+      row: 1,
+      field: 'shiten_code',
+      message: 'このアカウントは管理支店「KS001」／支店「SH001」の読者のみ取込できます。',
+    });
+  });
+
+  it('4. 管理支店＋支店の両方が自分自身と一致すればエラーなし', () => {
+    const lookups = buildLookups() as any;
+    lookups.kanriShitenCodeSet.add('KS001');
+    lookups.shitenCodeSet.add('SH001');
+    lookups.hanbaitenCodeSet.add('H001');
+    lookups.tankaCodeSet.add('T001');
+    lookups.kanriShitenFlagsByCode.set('KS001', { paperFlg: true, denshiFlg: true });
+    lookups.ownKanriShitenCode = 'KS001';
+    lookups.ownShitenCode = 'SH001';
+
+    run(
+      buildRow({ kanri_shiten_code: 'KS001', shiten_code: 'SH001' }),
+      lookups,
+      buildScopedSession({ kanri_shiten_id: 101, shiten_id: 1001 }),
+    );
+
+    expect(
+      errors.filter((e) => e.field === 'kanri_shiten_code' || e.field === 'shiten_code'),
+    ).toHaveLength(0);
   });
 });
